@@ -1,5 +1,3 @@
-# main.py
-
 print(">>> DEBUG: Diese main.py wurde geladen")
 
 import json
@@ -16,6 +14,12 @@ from ea_core.analysis import basic_group_analysis, quick_column_insight
 from ea_core.exporting import export_to_excel
 from ea_core.jobs import save_job, load_job
 from ea_core.ppt_export import export_analysis_to_pptx
+from ea_core.license import (
+    get_machine_id,
+    load_saved_license,
+    save_license_key,
+    validate_license_key,
+)
 
 
 # ------------------------- Logging & Config -------------------------
@@ -25,6 +29,7 @@ CONFIG_DIR = BASE_DIR / "config"
 JOBS_DIR = BASE_DIR / "jobs"
 LOGS_DIR = BASE_DIR / "logs"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
+LICENSE_FILE = CONFIG_DIR / "license.json"
 
 CONFIG_DIR.mkdir(exist_ok=True)
 JOBS_DIR.mkdir(exist_ok=True)
@@ -39,16 +44,21 @@ logging.basicConfig(
 
 logger = logging.getLogger("excel_automator")
 
-# Settings laden
+DEFAULT_SETTINGS = {
+    "jobs_dir": "jobs",
+    "logs_dir": "logs",
+    "default_export_name": "ergebnis.xlsx"
+}
+
+# Settings laden (robust, falls settings.json leer/kaputt ist)
 if SETTINGS_FILE.is_file():
-    with SETTINGS_FILE.open("r", encoding="utf-8") as f:
-        SETTINGS = json.load(f)
+    try:
+        with SETTINGS_FILE.open("r", encoding="utf-8") as f:
+            SETTINGS = json.load(f)
+    except Exception:
+        SETTINGS = DEFAULT_SETTINGS
 else:
-    SETTINGS = {
-        "jobs_dir": "jobs",
-        "logs_dir": "logs",
-        "default_export_name": "ergebnis.xlsx"
-    }
+    SETTINGS = DEFAULT_SETTINGS
 
 
 # ------------------------- Globale Zustände -------------------------
@@ -59,6 +69,8 @@ current_df_name: str = "Aktive Daten"
 second_df: pd.DataFrame | None = None  # für Merge
 merged_df: pd.DataFrame | None = None
 analysis_df: pd.DataFrame | None = None
+license_valid: bool = False
+license_message: str = ""
 
 
 # ------------------------- Hilfsfunktionen GUI -------------------------
@@ -162,7 +174,7 @@ def make_layout():
         [sg.Frame("Merge-Ergebnis", [[sg.Multiline(size=(100, 10), key="-MERGE_INFO-")]], pad=(0, 10))]
     ]
 
-        # Tab 4: Analyse
+    # Tab 4: Analyse
     tab_analysis = [
         [sg.Text("Analyse & Quick-Filter", font=("Segoe UI", 10, "bold"))],
         [
@@ -298,6 +310,28 @@ def make_layout():
         [sg.Frame("PPTX-Protokoll", [[sg.Multiline(size=(100, 10), key="-PPTX_INFO-")]], pad=(0, 10))]
     ]
 
+    # Tab 8: Lizenz
+    machine_id = get_machine_id()
+    tab_license = [
+        [sg.Text("Lizenzverwaltung", font=("Segoe UI", 10, "bold"))],
+        [
+            sg.Text("Maschinen-ID:", size=(12, 1)),
+            sg.Input(machine_id, key="-LIC_MACHINE-", size=(40, 1), disabled=True),
+            sg.Text("← Diese ID an dich schicken, um einen Lizenzschlüssel zu erhalten.")
+        ],
+        [
+            sg.Text("Lizenzschlüssel:", size=(12, 1)),
+            sg.Input(key="-LIC_KEY-", size=(40, 1)),
+            sg.Button("Lizenz prüfen & speichern", key="-BTN_LIC_SAVE-", button_color=("white", "#007ACC")),
+        ],
+        [
+            sg.Text("Lizenzstatus:", font=("Segoe UI", 10, "bold")),
+        ],
+        [
+            sg.Multiline(size=(100, 4), key="-LIC_STATUS-", disabled=True)
+        ],
+    ]
+
     tabs = [
         sg.Tab("Import", tab_import),
         sg.Tab("Bereinigung", tab_clean),
@@ -306,6 +340,7 @@ def make_layout():
         sg.Tab("Export", tab_export),
         sg.Tab("Jobs", tab_jobs),
         sg.Tab("PPTX-Export", tab_ppt),
+        sg.Tab("Lizenz", tab_license),
     ]
 
     layout = [
@@ -321,11 +356,26 @@ def make_layout():
 # ------------------------- main() -------------------------
 
 def main():
-    global current_df, current_df_name, second_df, merged_df, analysis_df
+    global current_df, current_df_name, second_df, merged_df, analysis_df, license_valid, license_message
 
     window = sg.Window("Excel Automator v0.2", make_layout(), resizable=True, finalize=True)
 
-    show_message(window, "Bereit. Bitte Datei laden.")
+    # Lizenz beim Start prüfen
+    machine_id = get_machine_id()
+    saved_key = load_saved_license(LICENSE_FILE)
+    if saved_key:
+        ok, msg = validate_license_key(machine_id, saved_key)
+        license_valid = ok
+        license_message = msg
+    else:
+        license_valid = False
+        license_message = "Keine Lizenz gefunden. Bitte Lizenzschlüssel eingeben."
+
+    window["-LIC_STATUS-"].update(license_message)
+    if not license_valid:
+        show_message(window, "Keine gültige Lizenz. Einige Funktionen sind eingeschränkt.")
+    else:
+        show_message(window, "Lizenz gültig. Voller Funktionsumfang verfügbar.")
 
     while True:
         event, values = window.read()
@@ -333,9 +383,30 @@ def main():
         if event == sg.WIN_CLOSED:
             break
 
+        # --------------- Lizenz speichern/prüfen ---------------
+        if event == "-BTN_LIC_SAVE-":
+            key = values["-LIC_KEY-"].strip()
+            if not key:
+                window["-LIC_STATUS-"].update("Bitte einen Lizenzschlüssel eingeben.")
+                show_message(window, "Kein Lizenzschlüssel eingegeben.")
+            else:
+                ok, msg = validate_license_key(machine_id, key)
+                license_valid = ok
+                license_message = msg
+                window["-LIC_STATUS-"].update(msg)
+                if ok:
+                    save_license_key(LICENSE_FILE, key)
+                    show_message(window, "Lizenz gültig und gespeichert.")
+                else:
+                    show_message(window, "Lizenz ungültig. Bitte prüfen.")
+
         # --------------- Import ---------------
 
         if event == "-BTN_LOAD-":
+            if not license_valid:
+                show_message(window, "Keine gültige Lizenz. Import ist gesperrt.")
+                continue
+
             filepath = values["-IMPORT_FILE-"]
             if not filepath:
                 show_message(window, "Bitte zuerst eine Datei auswählen.")
@@ -355,6 +426,10 @@ def main():
         # --------------- Cleaning ---------------
 
         if event == "-BTN_CLEAN-":
+            if not license_valid:
+                show_message(window, "Keine gültige Lizenz. Bereinigung ist gesperrt.")
+                continue
+
             if current_df is None:
                 show_message(window, "Keine aktiven Daten vorhanden. Bitte zuerst Datei laden.")
                 continue
@@ -369,7 +444,6 @@ def main():
                 txt = f"Bereinigung abgeschlossen.\nZeilen vorher: {before_rows}\nZeilen nachher: {after_rows}"
                 window["-CLEAN_INFO-"].update(txt)
                 show_message(window, "Bereinigung erfolgreich.")
-                # Profil aktualisieren
                 window["-IMPORT_INFO-"].update(profile_dataframe(current_df, current_df_name))
                 update_column_dropdowns(window)
             except Exception as e:
@@ -380,6 +454,10 @@ def main():
         # --------------- Merge ---------------
 
         if event == "-BTN_LOAD_SECOND-":
+            if not license_valid:
+                show_message(window, "Keine gültige Lizenz. Merge-Funktionen sind gesperrt.")
+                continue
+
             filepath = values["-MERGE_FILE-"]
             if not filepath:
                 show_message(window, "Bitte zweite Datei auswählen.")
@@ -397,6 +475,10 @@ def main():
                 show_message(window, "Fehler beim Laden der zweiten Datei. Details im Log.")
 
         if event == "-BTN_MERGE-":
+            if not license_valid:
+                show_message(window, "Keine gültige Lizenz. Merge-Funktionen sind gesperrt.")
+                continue
+
             if current_df is None or second_df is None:
                 show_message(window, "Für Merge werden aktive Daten und zweite Datei benötigt.")
                 continue
@@ -411,13 +493,12 @@ def main():
 
             try:
                 merged_df = merge_dataframes(current_df, second_df, left_key, right_key, how=how)
-                current_df = merged_df  # merged Ergebnis wird neue aktive Datenbasis
+                current_df = merged_df
                 current_df_name = f"Merge({current_df_name})"
                 window["-MERGE_INFO-"].update(
                     "Merge erfolgreich.\n" + profile_dataframe(current_df, current_df_name)
                 )
                 show_message(window, "Merge erfolgreich.")
-                # Profil aktualisieren
                 window["-IMPORT_INFO-"].update(profile_dataframe(current_df, current_df_name))
                 update_column_dropdowns(window)
             except Exception as e:
@@ -425,10 +506,13 @@ def main():
                 window["-MERGE_INFO-"].update(f"Fehler beim Merge:\n{e}")
                 show_message(window, "Fehler beim Merge. Details im Log.")
 
-
         # --------------- Quick-Analyse per Spaltenklick ---------------
 
         if event == "-ANALYSIS_COL_LIST-":
+            if not license_valid:
+                show_message(window, "Keine gültige Lizenz. Analyse ist gesperrt.")
+                continue
+
             if current_df is None:
                 show_message(window, "Keine aktiven Daten vorhanden.")
                 continue
@@ -441,7 +525,7 @@ def main():
 
             try:
                 quick_df = quick_column_insight(current_df, col)
-                analysis_df = quick_df  # Quick-Analyse auch als aktuelles Analyse-Ergebnis setzen
+                analysis_df = quick_df
                 preview = quick_df.to_string()
                 window["-ANALYSIS_INFO-"].update(
                     f"Schnell-Analyse für Spalte: {col}\n\n" + preview
@@ -452,10 +536,13 @@ def main():
                 window["-ANALYSIS_INFO-"].update(f"Fehler bei Quick-Analyse:\n{e}")
                 show_message(window, "Fehler bei Quick-Analyse. Details im Log.")
 
-
         # --------------- Analyse ---------------
 
         if event == "-BTN_ANALYSIS-":
+            if not license_valid:
+                show_message(window, "Keine gültige Lizenz. Analyse ist gesperrt.")
+                continue
+
             if current_df is None:
                 show_message(window, "Keine aktiven Daten vorhanden.")
                 continue
@@ -486,6 +573,10 @@ def main():
         # --------------- Export ---------------
 
         if event == "-BTN_EXPORT-":
+            if not license_valid:
+                show_message(window, "Keine gültige Lizenz. Export ist gesperrt.")
+                continue
+
             export_path = values["-EXPORT_FILE-"]
             if not export_path:
                 show_message(window, "Bitte Exportdatei wählen.")
@@ -517,6 +608,10 @@ def main():
         # --------------- Jobs ---------------
 
         if event == "-BTN_JOB_SAVE-":
+            if not license_valid:
+                show_message(window, "Keine gültige Lizenz. Jobs sind gesperrt.")
+                continue
+
             name = values["-JOB_NAME-"].strip()
             job_in = values["-JOB_IN-"].strip()
             job_out = values["-JOB_OUT-"].strip()
@@ -546,6 +641,10 @@ def main():
                 show_message(window, "Fehler beim Speichern des Jobs. Details im Log.")
 
         if event == "-BTN_JOB_RUN-":
+            if not license_valid:
+                show_message(window, "Keine gültige Lizenz. Jobs sind gesperrt.")
+                continue
+
             job_file = values["-JOB_FILE-"].strip()
             if not job_file:
                 show_message(window, "Bitte eine Job-Datei auswählen.")
@@ -558,7 +657,6 @@ def main():
                 clean_empty = job_config.get("clean_empty", True)
                 dup_col = job_config.get("dup_col", None)
 
-                # Ablauf: Import -> Clean -> Export
                 df = load_file(job_in)
                 df = clean_dataframe(df, remove_empty_rows=clean_empty, duplicate_subset=dup_col)
                 export_to_excel(job_out, df, None)
@@ -575,6 +673,10 @@ def main():
         # --------------- PPTX-Export ---------------
 
         if event == "-BTN_PPTX_EXPORT-":
+            if not license_valid:
+                show_message(window, "Keine gültige Lizenz. PPTX-Export ist gesperrt.")
+                continue
+
             if analysis_df is None or analysis_df.empty:
                 show_message(window, "Keine Analyse-Daten vorhanden. Bitte zuerst eine Analyse ausführen.")
                 window["-PPTX_INFO-"].update("Keine Analyse-Daten vorhanden.\nBitte zuerst im Tab 'Analyse' eine Auswertung erstellen.")
