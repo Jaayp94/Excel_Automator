@@ -1,5 +1,18 @@
 print(">>> DEBUG: Diese main.py wurde geladen")
 
+IMPRINT_TEXT = (
+    "Impressum"
+    "------------------------------\n"
+    "Softwareanbieter: Jean-Pascal Lohmann\n"
+    "38154 Königslutter am Elm\n"
+    "Telefon:017672122332\n"
+    "+49 17672122332\n"
+    "E-Mail:jean.lohmann@gmx.de\n"
+    "Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV:\n"
+    "Jean-Pascal Lohmann\n"
+)
+
+
 import json
 import logging
 from pathlib import Path
@@ -331,6 +344,18 @@ def make_layout():
             sg.Multiline(size=(100, 4), key="-LIC_STATUS-", disabled=True)
         ],
     ]
+      # Tab 9: Impressum
+    tab_imprint = [
+        [sg.Text("Impressum", font=("Segoe UI", 12, "bold"))],
+        [
+            sg.Multiline(
+                IMPRINT_TEXT,
+                size=(100, 12),
+                disabled=True,
+                key="-IMPRINT_TEXT-"
+            )
+        ]
+    ]
 
     tabs = [
         sg.Tab("Import", tab_import),
@@ -341,6 +366,7 @@ def make_layout():
         sg.Tab("Jobs", tab_jobs),
         sg.Tab("PPTX-Export", tab_ppt),
         sg.Tab("Lizenz", tab_license),
+        sg.Tab("Impressum", tab_imprint),
     ]
 
     layout = [
