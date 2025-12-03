@@ -1,0 +1,71 @@
+🟢 FlowBuilder – Wertstrom Baukasten (MVP)
+🎯 Ziel
+
+Grafische Darstellung von Roboter, Stationen und Pufferspeichern
+
+Live-Anbindung an SPS-Variablen (IIH API)
+
+Identifikation von Engpässen & Auslastungen
+
+🔑 Funktionen
+1. Objekte & Formen
+
+Kreis = Roboter (Kapazität: 1 Teil)
+
+Viereck = Station (Kapazität: 1 Teil)
+
+Dreieck = Pufferspeicher (Kapazität frei, Standard: 50 Teile)
+
+Objekte frei verschiebbar (Drag&Drop) und per Pfeil verbindbar (Snap an Kanten)
+
+2. Node-Informationen
+
+Frei benennbar (Panel oder Doppelklick)
+
+Zähler pro Objekt (live oder manuell steuerbar)
+
+Kapazität: fix (Roboter/Station) oder variabel (Puffer)
+
+Variablen-Zuweisung: jede SPS-Variable kann einem Objekt zugeordnet werden
+
+3. Heatmap & Status
+
+Dynamische Farbgebung nach Auslastung:
+
+🟢 < 50 %
+
+🟡 50–90 %
+
+🔴 > 90 %
+
+Anzeige: Name • Variable • Count/Capacity + kompakter Zähler-Badge
+
+4. SPS-Anbindung (IIH API)
+
+Eingabefeld für IP/Host der Datenquelle
+
+Variablen laden (Dropdown-Auswahl)
+
+Live-Polling (alle 300 ms):
+
+0→1 Flanke → Zähler hoch (AutoInc)
+
+1→0 Flanke → Zähler runter (AutoDec)
+
+Mock-Modus für Tests ohne SPS (zufällige Werte)
+
+5. Interaktion
+
+Objekte hinzufügen / löschen
+
+Manuelles + / – Zählen möglich
+
+Auto-Layout (ordnet Objekte spaltenweise an)
+
+Auswahl-Panel mit: Name, Typ, Kapazität, Zähler, Variable
+
+6. Speichern & Laden
+
+Diagramm wird als JSON gespeichert (graph.json)
+
+Beliebig laden/weiterbearbeiten

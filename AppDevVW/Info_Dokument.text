@@ -1,0 +1,38 @@
+# Befehle für die Konsole im Docker, falls weder python, flask, requests installiert sind
+    #  python --version
+    # python -m pip --version
+    # pip install flask
+    # pip install requests
+    # py -m pip install flask // oder
+    # py -m pip install requests // oder
+
+    # python -m pip install flask
+    # python -m pip install requests
+
+# app.py
+    # Variablen zurückschreiben an IIH 
+    # VAR_StartZeit, VAR_XXX
+    # Performance und Code Prüfen 
+    # Suchfunktion für Variablen in der Web-Ansicht Prio!- Filterfunktion
+    # 
+# evaluation.py
+    # Logik auswertung der Variablen kontrollieren und ausbessern
+    # Weiter einbindungen
+    # Sencondary Variablenpfad miteinpflegen
+    #
+# main.js
+    # Logik ergänzen verfeinern
+    # Status Update - Echtzeitfähigkeit, Messzyklus wie viele AUfzeichnung und davon einen Medianwert ausgeben.
+    #
+# templates/.html
+    # Boxen Einfügen für Invertierung - Auch gesamte Reihe - Rdy for Deploy!! X
+    # Reset_Button für Gesamt Variablen - Konzeption - in progress X
+    # Export_Button für CSV. Ecxel Dokument, Ansonsten automatische Anlegung im Edge Device - Part1 in progress - Part2 already Online
+    # Add_Button für Variablen einfügen sodass ich so viele wie ich mag einbinden-bzw. löschen kann, das gleiche auch für Stationen
+    # Grafische Auswertung - Anwender muss Zeit vorgeben X
+    # Variablen Namen Individuell Anpassbar X
+    # Schieberegler satt Button einfügen 
+## Chechup des Codes auf Docker Werksintern
+    # Evaluierung der Funktionen X
+    # Impressum PPK-R Einfügen Eigenentwicklung X
+    # Corporate Design für die App etc.X

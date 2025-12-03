@@ -1,0 +1,10 @@
+edge_logic_app/
+├── app.py
+├── config.py
+├── logic/
+│   └── evaluation.py
+├── templates/
+│   └── index.html
+├── static/
+│   └── main.js
+└── requirements.txt

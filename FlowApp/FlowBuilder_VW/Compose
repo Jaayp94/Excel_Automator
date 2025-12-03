@@ -1,0 +1,24 @@
+version: "3.9"
+services:
+  flowbuilder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: flowbuilder:latest
+    container_name: flowbuilder
+    environment:
+      - PORT=8090
+      # MOCK=1 => Dummyvariablen (ohne SPS). Für echte SPS auf 0 setzen.
+      - MOCK=1
+    ports:
+      - "8090:8090"
+    # Persistenz für gespeicherte Diagramme
+    volumes:
+      - flowbuilder_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+volumes:
+  flowbuilder_data:

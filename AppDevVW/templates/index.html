@@ -1,0 +1,149 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FlexTimer</title>
+
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; background-color: #11192E; color: #11192E; margin: 0; padding: 20px; }
+    .container { max-width: 1040px; margin: auto; background: white; padding: 20px 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .input-group { margin-bottom: 15px; }
+    .input-group label { font-weight: 600; margin-bottom: 5px; display: block; }
+    .input-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .input-group input, .input-group select { padding: 8px; font-size: 15px; border: 1px solid #ccc; border-radius: 6px; margin-bottom: 5px; }
+
+    .var-container { display: flex; flex-direction: column; gap: 8px; }
+    .var-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+
+    .btn { padding: 10px 18px; font-size: 15px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; margin-right: 10px; }
+    .btn-start, .btn-stop, .btn-load, .btn-save { background-color: #EBE5DC; color: #11192E; }
+
+    .tab-container { display: flex; flex-wrap: wrap; margin: 20px 0 10px; gap:5px; }
+    .tab-button { background-color: #e0e0e0; border: none; border-radius: 6px 6px 0 0; cursor: pointer; font-weight: 600; padding: 0; }
+    .tab-button input { border:none; background:transparent; padding:8px 12px; width:160px; }
+    .tab-button.active { background-color: #EBE5DC; color: #11192E; }
+    .tab-content { display: none; border: 1px solid #ccc; border-top: none; padding: 20px; border-radius: 0 0 6px 6px; background-color: #fafafa; }
+    .tab-content.active { display: block; }
+
+    .status-dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:#bbb; margin-left:8px; }
+    .status-dot.active { background:#28a745; animation: blink 1s infinite; }
+    @keyframes blink { 50% { opacity: 0.3; } }
+    .phase-header { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+    .phase-controls { display:flex; align-items:center; gap:10px; margin:6px 0 10px; flex-wrap:wrap; }
+
+    .filter-wrap { display:flex; gap:10px; align-items:center; }
+    .op-wrap { display:flex; align-items:center; gap:6px; min-width:130px; }
+    .op-badge { font-size:12px; font-weight:600; padding:2px 6px; background:#EBE5DC; color:#11192E; border-radius:10px; }
+    .invisible { visibility: hidden; }
+    .switch { position: relative; display: inline-block; width: 46px; height: 24px; vertical-align: middle; }
+    .switch input { display:none; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .2s; border-radius: 24px; }
+    .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; }
+    input:checked + .slider { background-color: #c00; }
+    input:checked + .slider:before { transform: translateX(22px); }
+    .switch-label { font-size: 12px; font-weight:600; margin-left:4px; }
+
+    .select-sm { padding:6px 8px; font-size:14px; min-width: 360px; max-width: 100%; }
+    .select-op { padding:6px 8px; font-size:14px; min-width: 110px; }
+    .stepper { display:inline-flex; align-items:center; gap:6px; }
+    .stepper .btn-step { padding:6px 10px; border-radius:6px; border:none; background:#EBE5DC; color:#11192E; cursor:pointer; font-weight:700; }
+    .stepper .count { min-width: 36px; text-align:center; font-weight:600; }
+
+    /* Footer / Impressum */
+    .site-footer { max-width: 1040px; margin: 20px auto 0; padding: 14px 20px; color: #e6e6e6; font-size: 14px; display: flex; align-items: center; gap: 10px; }
+    .site-footer .dot { width: 4px; height: 4px; border-radius: 50%; background: #e6e6e6; display: inline-block; }
+    .site-footer a { color: #e6e6e6; text-decoration: none; border-bottom: 1px dashed rgba(230,230,230,.4); }
+    .site-footer a:hover { border-bottom-color: transparent; }
+    .impressum .modal { background:#fff; color:#11192E; padding:18px; border-radius:10px; width: 520px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+    .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; }
+    .modal .actions { display:flex; justify-content:flex-end; gap:8px; }
+    .btn-link { background:transparent; color:#11192E; border:1px dashed #11192E; }
+    .hint { font-size: 12px; color: #555; }
+    .endpoint { padding: 8px 10px; background:#F4F2EF; border-radius:8px; border:1px dashed #ccc; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>FlexTimer</h1>
+
+    <!-- Hinweis für FlowCreator/Webhook -->
+    <div class="input-group">
+      <label>Webhook (FlowCreator ➜ FlexTimer)</label>
+      <div class="input-row">
+        <code class="endpoint" id="ingestUrl"></code>
+        <button class="btn btn-link" onclick="copyIngest()">Kopieren</button>
+      </div>
+      <div class="hint">Sende per <strong>HTTP POST</strong> ein JSON-Objekt mit Variablenzuständen an diese URL, z.&nbsp;B.:
+        <code>{"VarA":1,"VarB":0}</code>
+      </div>
+    </div>
+
+    <div class="input-group">
+      <label for="stationName">Anlagenname:</label>
+      <input type="text" id="stationName" placeholder="z. B. Verpackungsanlage" />
+    </div>
+
+    <div class="input-group">
+      <label for="stationCount">Anzahl Stationen (max. 10):</label>
+      <input type="number" id="stationCount" min="1" max="10" value="1" onchange="createTabs()" />
+    </div>
+
+    <div class="input-group filter-wrap">
+      <label for="varFilter" style="margin:0;">Variablen filtern:</label>
+      <input type="text" id="varFilter" placeholder="Filter eingeben..." oninput="applyVarFilter()" />
+    </div>
+
+    <button class="btn btn-load" onclick="loadVariables()">Variablen laden</button>
+    <button class="btn btn-save" onclick="saveConfig()">Konfiguration speichern</button>
+    <button class="btn btn-save" onclick="downloadCSV()">CSV herunterladen</button>
+
+    <div class="tab-container" id="tab-buttons"></div>
+    <div id="tab-contents"></div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <span>© <span id="year"></span> FlexTimer</span>
+    <span class="dot"></span>
+    <span>Entwickelt von <strong>Jean-Pascal Lohmann</strong> · <strong>PPK-R/F</strong></span>
+    <span class="dot"></span>
+    <a href="#" onclick="openImpressum();return false;">Impressum</a>
+  </footer>
+
+  <!-- Impressum Modal -->
+  <div id="impressumModal" class="modal-backdrop impressum" style="display:none;">
+    <div class="modal">
+      <h3>Impressum</h3>
+      <p>
+        <strong>Jean-Pascal Lohmann</strong><br/>
+        Abteilung: <strong>PPK-R/F</strong>
+      </p>
+      <p class="hint">
+        Diese Anwendung („FlexTimer“) wird intern bereitgestellt. Angaben ohne Gewähr.
+        Nutzung ausschließlich innerhalb des Unternehmensnetzes.
+      </p>
+      <div class="actions">
+        <button class="btn btn-save" onclick="closeImpressum()">Schließen</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Jahreszahl & Ingest-URL anzeigen
+    (function(){
+      const y = document.getElementById('year');
+      if (y) y.textContent = new Date().getFullYear();
+      const u = new URL("/ingest", window.location.href).toString();
+      const el = document.getElementById("ingestUrl");
+      if (el) el.textContent = u;
+      window.copyIngest = () => { navigator.clipboard.writeText(u); };
+      window.openImpressum = () => { document.getElementById('impressumModal').style.display='flex'; };
+      window.closeImpressum = () => { document.getElementById('impressumModal').style.display='none'; };
+    })();
+  </script>
+
+  <script src="{{ request.script_root }}/static/main.js?v=5"></script>
+</body>
+</html>
