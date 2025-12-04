@@ -1,18 +1,5 @@
 print(">>> DEBUG: Diese main.py wurde geladen")
 
-IMPRINT_TEXT = (
-    "Impressum"
-    "------------------------------\n"
-    "Softwareanbieter: Jean-Pascal Lohmann\n"
-    "38154 Königslutter am Elm\n"
-    "Telefon:017672122332\n"
-    "+49 17672122332\n"
-    "E-Mail:jean.lohmann@gmx.de\n"
-    "Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV:\n"
-    "Jean-Pascal Lohmann\n"
-)
-
-
 import json
 import logging
 from pathlib import Path
@@ -20,6 +7,29 @@ from pathlib import Path
 import PySimpleGUI as sg
 import pandas as pd
 
+# ------------------ Farben & UI ------------------
+COLOR_BG = "#F4F6FA"
+COLOR_CARD = "#FFFFFF"
+COLOR_PRIMARY = "#1C7ED6"
+COLOR_PRIMARY_HOVER = "#1971C2"
+COLOR_TEXT = "#1F1F1F"
+
+sg.theme("SystemDefault1")
+sg.set_options(font=("Segoe UI", 10))
+
+# ------------------ Impressum ------------------
+IMPRINT_TEXT = (
+    "Impressum\n"
+    "------------------------------\n"
+    "Softwareanbieter: Jean-Pascal Lohmann\n"
+    "38154 Königslutter am Elm\n"
+    "Telefon: 017672122332\n"
+    "E-Mail: jean.lohmann@gmx.de\n"
+    "Verantwortlich nach § 18 Abs. 2 MStV:\n"
+    "Jean-Pascal Lohmann\n"
+)
+
+# ------------------ Module laden ------------------
 from ea_core.io_functions import load_file, profile_dataframe
 from ea_core.cleaning import clean_dataframe
 from ea_core.merge import merge_dataframes
@@ -34,10 +44,22 @@ from ea_core.license import (
     validate_license_key,
 )
 
+# OPTIONAL: Falls Modul existiert
+try:
+    from ea_core.advanced_analysis import (
+        generate_top_lists,
+        generate_kpis,
+        time_series_analysis,
+        quick_insights,
+    )
+    ADVANCED_AVAILABLE = True
+except Exception:
+    ADVANCED_AVAILABLE = False
 
-# ------------------------- Logging & Config -------------------------
-
+# ------------------ Logging ------------------
 BASE_DIR = Path(__file__).resolve().parent
+ASSETS_DIR = BASE_DIR / "assets"
+
 CONFIG_DIR = BASE_DIR / "config"
 JOBS_DIR = BASE_DIR / "jobs"
 LOGS_DIR = BASE_DIR / "logs"
@@ -63,672 +85,770 @@ DEFAULT_SETTINGS = {
     "default_export_name": "ergebnis.xlsx"
 }
 
-# Settings laden (robust, falls settings.json leer/kaputt ist)
-if SETTINGS_FILE.is_file():
+# Settings laden
+if SETTINGS_FILE.exists():
     try:
-        with SETTINGS_FILE.open("r", encoding="utf-8") as f:
-            SETTINGS = json.load(f)
+        SETTINGS = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except Exception:
         SETTINGS = DEFAULT_SETTINGS
 else:
     SETTINGS = DEFAULT_SETTINGS
 
+# ------------------ Globale Variablen ------------------
+current_df = None
+current_df_name = ""
+second_df = None
+merged_df = None
+analysis_df = None
 
-# ------------------------- Globale Zustände -------------------------
-
-current_df: pd.DataFrame | None = None
-current_df_name: str = "Aktive Daten"
-
-second_df: pd.DataFrame | None = None  # für Merge
-merged_df: pd.DataFrame | None = None
-analysis_df: pd.DataFrame | None = None
-license_valid: bool = False
-license_message: str = ""
+license_valid = False
+license_message = ""
 
 
-# ------------------------- Hilfsfunktionen GUI -------------------------
+# ---------------------------------------------------------
+# Helper
+# ---------------------------------------------------------
 
-def update_column_dropdowns(window: sg.Window):
-    """
-    Aktualisiert Dropdowns und Spaltenliste, die Spalten der aktiven Daten anzeigen.
-    """
-    global current_df
-    cols = list(current_df.columns) if current_df is not None else []
+def update_column_dropdowns(window):
+    if current_df is None:
+        cols = []
+    else:
+        cols = list(current_df.columns)
 
-    # Cleaning
     window["-CLEAN_DUP_COL-"].update(values=cols)
-
-    # Merge (linke Spalte)
     window["-MERGE_LEFT_KEY-"].update(values=cols)
-
-    # Analysis-Dropdowns
     window["-ANALYSIS_GROUP1-"].update(values=cols)
     window["-ANALYSIS_GROUP2-"].update(values=[""] + cols)
     window["-ANALYSIS_AGG_COL-"].update(values=cols)
-
-    # Quick-Analyse Spaltenliste
     window["-ANALYSIS_COL_LIST-"].update(values=cols)
 
 
-def update_merge_right_dropdown(window: sg.Window):
-    """
-    Aktualisiert Dropdown für rechte Merge-Spalte (second_df).
-    """
-    global second_df
-    cols = list(second_df.columns) if second_df is not None else []
+def update_merge_right_dropdown(window):
+    if second_df is None:
+        cols = []
+    else:
+        cols = list(second_df.columns)
+
     window["-MERGE_RIGHT_KEY-"].update(values=cols)
 
 
-def show_message(window: sg.Window, text: str):
-    window["-STATUS-"].update(text)
+def show_message(window, msg: str):
+    """Statuszeile aktualisieren (ohne dass es knallt, falls -STATUS- fehlt)."""
+    try:
+        window["-STATUS-"].update(msg)
+    except Exception:
+        print(f"[STATUS] {msg}")
 
 
-# ------------------------- GUI Layout -------------------------
+# ---------------------------------------------------------
+# Layout
+# ---------------------------------------------------------
 
 def make_layout():
-    sg.theme("DarkBlue14")  # moderneres Theme
-
-    # Header
-    header_col = [
-        [sg.Text("Excel Automator v0.2", font=("Segoe UI", 16, "bold"))],
-        [sg.Text("Automatisierte Auswertung und Reports für CSV/Excel-Daten", font=("Segoe UI", 10))]
-    ]
-
+    # ---------- HEADER ----------
     header = [
-        [sg.Column(header_col, pad=(10, 5))]
-    ]
-
-    # Tab 1: Import & Vorschau
-    tab_import = [
-        [sg.Text("Eingabedatei (CSV/Excel):", font=("Segoe UI", 10, "bold"))],
         [
-            sg.Input(key="-IMPORT_FILE-"),
-            sg.FileBrowse("Durchsuchen", file_types=(("CSV/Excel", "*.csv;*.xlsx;*.xls"),))
-        ],
-        [sg.Button("Datei laden", key="-BTN_LOAD-", button_color=("white", "#007ACC"))],
-        [sg.Frame("Datenprofil", [[sg.Multiline(size=(100, 20), key="-IMPORT_INFO-")]], pad=(0, 10))]
-    ]
-
-    # Tab 2: Bereinigung
-    tab_clean = [
-        [sg.Text("Bereinigung der aktiven Daten", font=("Segoe UI", 10, "bold"))],
-        [sg.Checkbox("Leere Zeilen entfernen", default=True, key="-CLEAN_EMPTY-")],
-        [
-            sg.Text("Duplikate entfernen anhand Spalte:"),
-            sg.Combo([], key="-CLEAN_DUP_COL-", size=(30, 1))
-        ],
-        [sg.Button("Bereinigung ausführen", key="-BTN_CLEAN-", button_color=("white", "#007ACC"))],
-        [sg.Frame("Bereinigungsprotokoll", [[sg.Multiline(size=(100, 10), key="-CLEAN_INFO-")]], pad=(0, 10))]
-    ]
-
-    # Tab 3: Merge
-    tab_merge = [
-        [sg.Text("Zweite Datei für Merge auswählen (CSV/Excel):", font=("Segoe UI", 10, "bold"))],
-        [
-            sg.Input(key="-MERGE_FILE-"),
-            sg.FileBrowse("Durchsuchen", file_types=(("CSV/Excel", "*.csv;*.xlsx;*.xls"),))
-        ],
-        [sg.Button("Zweite Datei laden", key="-BTN_LOAD_SECOND-", button_color=("white", "#007ACC"))],
-        [sg.HorizontalSeparator()],
-        [sg.Text("Merge-Konfiguration:", font=("Segoe UI", 10, "bold"))],
-        [
-            sg.Text("Schlüssel links (aktive Daten):", size=(28, 1)),
-            sg.Combo([], key="-MERGE_LEFT_KEY-", size=(30, 1))
-        ],
-        [
-            sg.Text("Schlüssel rechts (zweite Datei):", size=(28, 1)),
-            sg.Combo([], key="-MERGE_RIGHT_KEY-", size=(30, 1))
-        ],
-        [
-            sg.Text("Merge-Typ:", size=(28, 1)),
-            sg.Combo(["inner", "left", "right", "outer"], default_value="inner", key="-MERGE_HOW-", size=(10, 1))
-        ],
-        [sg.Button("Merge ausführen", key="-BTN_MERGE-", button_color=("white", "#007ACC"))],
-        [sg.Frame("Merge-Ergebnis", [[sg.Multiline(size=(100, 10), key="-MERGE_INFO-")]], pad=(0, 10))]
-    ]
-
-    # Tab 4: Analyse
-    tab_analysis = [
-        [sg.Text("Analyse & Quick-Filter", font=("Segoe UI", 10, "bold"))],
-        [
-            sg.Column(
+            sg.Column([
                 [
-                    [
-                        sg.Text("Gruppierspalte 1:", size=(20, 1)),
-                        sg.Combo([], key="-ANALYSIS_GROUP1-", size=(30, 1))
-                    ],
-                    [
-                        sg.Text("Gruppierspalte 2 (optional):", size=(20, 1)),
-                        sg.Combo([], key="-ANALYSIS_GROUP2-", size=(30, 1))
-                    ],
-                    [
-                        sg.Text("Aggregationsspalte (numerisch):", size=(20, 1)),
-                        sg.Combo([], key="-ANALYSIS_AGG_COL-", size=(30, 1))
-                    ],
-                    [
-                        sg.Text("Funktion:", size=(20, 1)),
-                        sg.Combo(
-                            ["sum", "mean", "count", "min", "max"],
-                            default_value="sum",
-                            key="-ANALYSIS_FUNC-",
-                            size=(10, 1)
-                        )
-                    ],
-                    [
-                        sg.Button(
-                            "Analyse ausführen",
-                            key="-BTN_ANALYSIS-",
-                            button_color=("white", "#007ACC")
-                        )
-                    ],
-                ],
-                vertical_alignment="top",
-                expand_x=True,
-            ),
-            sg.VSeparator(),
-            sg.Column(
-                [
-                    [sg.Text("Schnellauswahl Spalten", font=("Segoe UI", 10, "bold"))],
-                    [
-                        sg.Listbox(
-                            values=[],
-                            size=(25, 15),
-                            key="-ANALYSIS_COL_LIST-",
-                            enable_events=True
-                        )
-                    ],
-                    [sg.Text("Tipp: Spalte anklicken für Quick-Analyse.", font=("Segoe UI", 8))]
-                ],
-                vertical_alignment="top",
-                pad=(10, 0),
-            )
+                    sg.Image(filename=str(ASSETS_DIR / "logo.png"), pad=(0, 0)),
+                    sg.Text(
+                        "Excel Automator Pro",
+                        font=("Segoe UI", 20, "bold"),
+                        text_color=COLOR_TEXT,
+                        pad=(20, 0),
+                    ),
+                ]
+            ], pad=(20, 20))
         ],
-        [
-            sg.Frame(
-                "Analyse-Ergebnis",
-                [
-                    [
-                        sg.Multiline(
-                            size=(110, 20),
-                            key="-ANALYSIS_INFO-",
-                            font=("Consolas", 9),
-                            autoscroll=True
-                        )
-                    ]
-                ],
-                pad=(0, 10),
-                expand_x=True,
-                expand_y=True,
-            )
-        ],
+        [sg.HorizontalSeparator(color="#D0D7E2")],
     ]
 
-    # Tab 5: Export
-    tab_export = [
-        [sg.Text("Export aktiver Daten / Analyse nach Excel", font=("Segoe UI", 10, "bold"))],
+    # ---------- Import ----------
+    page_import = sg.Column(
         [
-            sg.Text("Zieldatei:", size=(10, 1)),
-            sg.Input(str(BASE_DIR / SETTINGS.get("default_export_name", "ergebnis.xlsx")), key="-EXPORT_FILE-"),
-            sg.FileSaveAs("Ziel wählen", file_types=(("Excel", "*.xlsx"),))
+            [
+                sg.Frame(
+                    "Daten Import",
+                    [
+                        [sg.Text("Eingabedatei (CSV/Excel):")],
+                        [
+                            sg.Input(key="-IMPORT_FILE-", size=(50, 1)),
+                            sg.FileBrowse("Durchsuchen"),
+                        ],
+                        [
+                            sg.Button(
+                                "Datei laden",
+                                key="-BTN_LOAD-",
+                                button_color=("white", COLOR_PRIMARY),
+                            )
+                        ],
+                        [sg.Multiline(size=(80, 15), key="-IMPORT_INFO-")],
+                    ],
+                    background_color=COLOR_CARD,
+                    pad=(10, 10),
+                )
+            ]
         ],
-        [sg.Checkbox("Aktive Daten exportieren", default=True, key="-EXPORT_MAIN-")],
-        [sg.Checkbox("Analyse-Ergebnis exportieren (falls vorhanden)", default=True, key="-EXPORT_ANALYSIS-")],
-        [sg.Button("Export starten", key="-BTN_EXPORT-", button_color=("white", "#007ACC"))],
-        [sg.Frame("Export-Protokoll", [[sg.Multiline(size=(100, 10), key="-EXPORT_INFO-")]], pad=(0, 10))]
-    ]
+        key="-PAGE_IMPORT-",
+        visible=True,
+    )
 
-    # Tab 6: Jobs
-    tab_jobs = [
-        [sg.Text("Einfache Job-Konfiguration (Import + Bereinigung + Export)", font=("Segoe UI", 10, "bold"))],
-        [sg.Text("Job-Name:"), sg.Input(key="-JOB_NAME-")],
+    # ---------- Cleaning ----------
+    page_clean = sg.Column(
         [
-            sg.Text("Eingabedatei:", size=(10, 1)),
-            sg.Input(key="-JOB_IN-"),
-            sg.FileBrowse("Durchsuchen", file_types=(("CSV/Excel", "*.csv;*.xlsx;*.xls"),))
+            [sg.Text("Bereinigung der aktiven Daten", font=("Segoe UI", 10, "bold"))],
+            [sg.Checkbox("Leere Zeilen entfernen", default=True, key="-CLEAN_EMPTY-")],
+            [
+                sg.Text("Duplikate entfernen anhand Spalte:"),
+                sg.Combo([], key="-CLEAN_DUP_COL-", size=(30, 1)),
+            ],
+            [
+                sg.Button(
+                    "Bereinigung ausführen",
+                    key="-BTN_CLEAN-",
+                    button_color=("white", COLOR_PRIMARY),
+                )
+            ],
+            [sg.Multiline(size=(80, 12), key="-CLEAN_INFO-")],
         ],
-        [
-            sg.Text("Ausgabedatei:", size=(10, 1)),
-            sg.Input(key="-JOB_OUT-"),
-            sg.FileSaveAs("Ziel wählen", file_types=(("Excel", "*.xlsx"),))
-        ],
-        [sg.Checkbox("Leere Zeilen entfernen", default=True, key="-JOB_CLEAN_EMPTY-")],
-        [sg.Text("Duplikate anhand Spalte:"), sg.Input(key="-JOB_DUP_COL-")],
-        [
-            sg.Button("Job speichern", key="-BTN_JOB_SAVE-", button_color=("white", "#007ACC")),
-            sg.Text("oder Job-Datei laden & ausführen:"),
-            sg.Input(key="-JOB_FILE-"),
-            sg.FileBrowse("Job auswählen", file_types=(("Job-Datei", "*.json"),)),
-            sg.Button("Job ausführen", key="-BTN_JOB_RUN-", button_color=("white", "#007ACC"))
-        ],
-        [sg.Frame("Job-Protokoll", [[sg.Multiline(size=(100, 10), key="-JOB_INFO-")]], pad=(0, 10))]
-    ]
+        key="-PAGE_CLEAN-",
+        visible=False,
+    )
 
-    # Tab 7: PPTX-Export
-    tab_ppt = [
-        [sg.Text("PowerPoint-Report aus aktueller Analyse", font=("Segoe UI", 10, "bold"))],
+    # ---------- Merge ----------
+    page_merge = sg.Column(
         [
-            sg.Text("Zieldatei (.pptx):", size=(15, 1)),
-            sg.Input(str(BASE_DIR / "report_auswertung.pptx"), key="-PPTX_FILE-"),
-            sg.FileSaveAs("Ziel wählen", file_types=(("PowerPoint", "*.pptx"),))
+            [sg.Text("Zweite Datei zum Merge auswählen")],
+            [
+                sg.Input(key="-MERGE_FILE-"),
+                sg.FileBrowse("Durchsuchen"),
+            ],
+            [
+                sg.Button(
+                    "Zweite Datei laden",
+                    key="-BTN_LOAD_SECOND-",
+                    button_color=("white", COLOR_PRIMARY),
+                )
+            ],
+            [sg.HorizontalSeparator()],
+            [sg.Text("Merge Einstellungen")],
+            [
+                sg.Text("Linker Schlüssel:"),
+                sg.Combo([], size=(30, 1), key="-MERGE_LEFT_KEY-"),
+            ],
+            [
+                sg.Text("Rechter Schlüssel:"),
+                sg.Combo([], size=(30, 1), key="-MERGE_RIGHT_KEY-"),
+            ],
+            [
+                sg.Text("Merge-Typ:"),
+                sg.Combo(
+                    ["inner", "left", "right", "outer"],
+                    default_value="inner",
+                    size=(10, 1),
+                    key="-MERGE_HOW-",
+                ),
+            ],
+            [
+                sg.Button(
+                    "Merge ausführen",
+                    key="-BTN_MERGE-",
+                    button_color=("white", COLOR_PRIMARY),
+                )
+            ],
+            [sg.Multiline(size=(80, 12), key="-MERGE_INFO-")],
         ],
-        [
-            sg.Text("Titel:", size=(15, 1)),
-            sg.Input("Automatisierter Auswertungsreport", key="-PPTX_TITLE-")
-        ],
-        [
-            sg.Text("Untertitel:", size=(15, 1)),
-            sg.Input("Erstellt mit Excel Automator", key="-PPTX_SUBTITLE-")
-        ],
-        [sg.Button("PPTX-Report erstellen", key="-BTN_PPTX_EXPORT-", button_color=("white", "#007ACC"))],
-        [sg.Frame("PPTX-Protokoll", [[sg.Multiline(size=(100, 10), key="-PPTX_INFO-")]], pad=(0, 10))]
-    ]
+        key="-PAGE_MERGE-",
+        visible=False,
+    )
 
-    # Tab 8: Lizenz
-    machine_id = get_machine_id()
-    tab_license = [
-        [sg.Text("Lizenzverwaltung", font=("Segoe UI", 10, "bold"))],
-        [
-            sg.Text("Maschinen-ID:", size=(12, 1)),
-            sg.Input(machine_id, key="-LIC_MACHINE-", size=(40, 1), disabled=True),
-            sg.Text("← Diese ID an dich schicken, um einen Lizenzschlüssel zu erhalten.")
-        ],
-        [
-            sg.Text("Lizenzschlüssel:", size=(12, 1)),
-            sg.Input(key="-LIC_KEY-", size=(40, 1)),
-            sg.Button("Lizenz prüfen & speichern", key="-BTN_LIC_SAVE-", button_color=("white", "#007ACC")),
-        ],
-        [
-            sg.Text("Lizenzstatus:", font=("Segoe UI", 10, "bold")),
-        ],
-        [
-            sg.Multiline(size=(100, 4), key="-LIC_STATUS-", disabled=True)
-        ],
-    ]
-      # Tab 9: Impressum
-    tab_imprint = [
-        [sg.Text("Impressum", font=("Segoe UI", 12, "bold"))],
-        [
-            sg.Multiline(
-                IMPRINT_TEXT,
-                size=(100, 12),
-                disabled=True,
-                key="-IMPRINT_TEXT-"
-            )
+    # ---------- Analyse ----------
+    analysis_buttons = []
+    if ADVANCED_AVAILABLE:
+        analysis_buttons = [
+            sg.Button("Top-Listen", key="-BTN_TOPLISTS-", button_color=("white", COLOR_PRIMARY)),
+            sg.Button("Zeitreihen", key="-BTN_TIMESERIES-", button_color=("white", COLOR_PRIMARY)),
+            sg.Button("KPI-Report", key="-BTN_KPIS-", button_color=("white", COLOR_PRIMARY)),
+            sg.Button("Quick Insights", key="-BTN_INSIGHTS-", button_color=("white", COLOR_PRIMARY)),
         ]
-    ]
 
-    tabs = [
-        sg.Tab("Import", tab_import),
-        sg.Tab("Bereinigung", tab_clean),
-        sg.Tab("Merge", tab_merge),
-        sg.Tab("Analyse", tab_analysis),
-        sg.Tab("Export", tab_export),
-        sg.Tab("Jobs", tab_jobs),
-        sg.Tab("PPTX-Export", tab_ppt),
-        sg.Tab("Lizenz", tab_license),
-        sg.Tab("Impressum", tab_imprint),
-    ]
+    page_analysis = sg.Column(
+        [
+            [sg.Text("Analyse", font=("Segoe UI", 10, "bold"))],
+            analysis_buttons,
+            [
+                sg.Text("Gruppierspalte 1:"),
+                sg.Combo([], size=(30, 1), key="-ANALYSIS_GROUP1-"),
+            ],
+            [
+                sg.Text("Gruppierspalte 2:"),
+                sg.Combo([], size=(30, 1), key="-ANALYSIS_GROUP2-"),
+            ],
+            [
+                sg.Text("Aggregationsspalte:"),
+                sg.Combo([], size=(30, 1), key="-ANALYSIS_AGG_COL-"),
+            ],
+            [
+                sg.Text("Funktion:"),
+                sg.Combo(
+                    ["sum", "mean", "count", "min", "max"],
+                    default_value="sum",
+                    size=(10, 1),
+                    key="-ANALYSIS_FUNC-",
+                ),
+            ],
+            [
+                sg.Button(
+                    "Analyse ausführen",
+                    key="-BTN_ANALYSIS-",
+                    button_color=("white", COLOR_PRIMARY),
+                )
+            ],
+            [sg.Multiline(size=(80, 15), key="-ANALYSIS_INFO-")],
+            [sg.Text("Quick-Analyse per Klick:")],
+            [
+                sg.Listbox(
+                    values=[],
+                    size=(25, 12),
+                    key="-ANALYSIS_COL_LIST-",
+                    enable_events=True,
+                )
+            ],
+        ],
+        key="-PAGE_ANALYSIS-",
+        visible=False,
+    )
 
+    # ---------- Export ----------
+    page_export = sg.Column(
+        [
+            [sg.Text("Export nach Excel")],
+            [
+                sg.Text("Ziel:"),
+                sg.Input("", key="-EXPORT_FILE-"),
+                sg.FileSaveAs("Ziel wählen"),
+            ],
+            [sg.Checkbox("Aktive Daten exportieren", default=True, key="-EXPORT_MAIN-")],
+            [sg.Checkbox("Analyse exportieren", default=True, key="-EXPORT_ANALYSIS-")],
+            [
+                sg.Button(
+                    "Export starten",
+                    key="-BTN_EXPORT-",
+                    button_color=("white", COLOR_PRIMARY),
+                )
+            ],
+            [sg.Multiline(size=(80, 12), key="-EXPORT_INFO-")],
+        ],
+        key="-PAGE_EXPORT-",
+        visible=False,
+    )
+
+    # ---------- Jobs ----------
+    page_jobs = sg.Column(
+        [
+            [sg.Text("Automatisierte Jobs")],
+            [sg.Text("Job-Name:"), sg.Input(key="-JOB_NAME-")],
+            [
+                sg.Text("Input:"),
+                sg.Input(key="-JOB_IN-"),
+                sg.FileBrowse("Durchsuchen"),
+            ],
+            [
+                sg.Text("Output:"),
+                sg.Input(key="-JOB_OUT-"),
+                sg.FileSaveAs("Ziel wählen"),
+            ],
+            [sg.Checkbox("Leere Zeilen entfernen", key="-JOB_CLEAN_EMPTY-", default=True)],
+            [sg.Text("Duplikat-Spalte:"), sg.Input(key="-JOB_DUP_COL-")],
+            [
+                sg.Button(
+                    "Job speichern",
+                    key="-BTN_JOB_SAVE-",
+                    button_color=("white", COLOR_PRIMARY),
+                )
+            ],
+            [
+                sg.Text("Job laden:"),
+                sg.Input(key="-JOB_FILE-"),
+                sg.FileBrowse("Job auswählen"),
+                sg.Button(
+                    "Job ausführen",
+                    key="-BTN_JOB_RUN-",
+                    button_color=("white", COLOR_PRIMARY),
+                ),
+            ],
+            [sg.Multiline(size=(80, 12), key="-JOB_INFO-")],
+        ],
+        key="-PAGE_JOBS-",
+        visible=False,
+    )
+
+    # ---------- PPT Export ----------
+    page_ppt = sg.Column(
+        [
+            [sg.Text("PowerPoint Report")],
+            [
+                sg.Text("Zieldatei:"),
+                sg.Input(str(BASE_DIR / "report.pptx"), key="-PPTX_FILE-"),
+                sg.FileSaveAs("Ziel wählen"),
+            ],
+            [sg.Text("Titel:"), sg.Input("Automatisierter Auswertungsreport", key="-PPTX_TITLE-")],
+            [sg.Text("Untertitel:"), sg.Input("Erstellt mit Excel Automator", key="-PPTX_SUBTITLE-")],
+            [
+                sg.Button(
+                    "PPTX-Report erstellen",
+                    key="-BTN_PPTX_EXPORT-",
+                    button_color=("white", COLOR_PRIMARY),
+                )
+            ],
+            [sg.Multiline(size=(80, 12), key="-PPTX_INFO-")],
+        ],
+        key="-PAGE_PPTX-",
+        visible=False,
+    )
+
+    # ---------- Lizenz ----------
+    machine_id = get_machine_id()
+
+    page_license = sg.Column(
+        [
+            [sg.Text("Lizenzverwaltung")],
+            [
+                sg.Text("Maschinen-ID:"),
+                sg.Input(machine_id, disabled=True, size=(40, 1), key="-LIC_MACHINE-"),
+            ],
+            [
+                sg.Text("Lizenzschlüssel:"),
+                sg.Input(key="-LIC_KEY-", size=(40, 1)),
+                sg.Button(
+                    "Lizenz prüfen & speichern",
+                    key="-BTN_LIC_SAVE-",
+                    button_color=("white", COLOR_PRIMARY),
+                ),
+            ],
+            [sg.Multiline(size=(80, 5), key="-LIC_STATUS-", disabled=True)],
+        ],
+        key="-PAGE_LICENSE-",
+        visible=False,
+    )
+
+    # ---------- Impressum ----------
+    page_imprint = sg.Column(
+        [
+            [sg.Text("Impressum", font=("Segoe UI", 12, "bold"))],
+            [sg.Multiline(IMPRINT_TEXT, size=(80, 12), disabled=True)],
+        ],
+        key="-PAGE_IMPRINT-",
+        visible=False,
+    )
+
+    # ---------- Sidebar ----------
+    sidebar = sg.Column(
+        [
+            [sg.Text("Navigation", font=("Segoe UI", 12, "bold"), pad=(10, 10))],
+            [sg.Button("Import", key="-NAV_IMPORT-", size=(15, 1))],
+            [sg.Button("Bereinigung", key="-NAV_CLEAN-", size=(15, 1))],
+            [sg.Button("Merge", key="-NAV_MERGE-", size=(15, 1))],
+            [sg.Button("Analyse", key="-NAV_ANALYSIS-", size=(15, 1))],
+            [sg.Button("Export", key="-NAV_EXPORT-", size=(15, 1))],
+            [sg.Button("Jobs", key="-NAV_JOBS-", size=(15, 1))],
+            [sg.Button("PPTX", key="-NAV_PPTX-", size=(15, 1))],
+            [sg.Button("Lizenz", key="-NAV_LICENSE-", size=(15, 1))],
+            [sg.Button("Impressum", key="-NAV_IMPRINT-", size=(15, 1))],
+        ]
+    )
+
+    # ---------- Content area ----------
+        # ---------- Content area ----------
+    content_area = sg.Column(
+        [[
+            page_import,
+            page_clean,
+            page_merge,
+            page_analysis,
+            page_export,
+            page_jobs,
+            page_ppt,
+            page_license,
+            page_imprint,
+        ]],
+        key="-CONTENT-",
+        expand_x=True,
+        expand_y=True,
+        background_color=COLOR_BG,
+    )
+
+    # ---------- Full Layout ----------
     layout = [
         *header,
-        [sg.TabGroup([tabs], expand_x=True, expand_y=True)],
-        [sg.HorizontalSeparator()],
-        [sg.Text("Status:", font=("Segoe UI", 10, "bold")), sg.Text("", key="-STATUS-", size=(80, 1))]
+        [sidebar, content_area],
+        [sg.HorizontalSeparator(color="#D0D7E2")],
+        [sg.Text("Bereit", key="-STATUS-", font=("Segoe UI", 9), background_color=COLOR_BG)],
     ]
 
     return layout
 
 
-# ------------------------- main() -------------------------
+# ---------------------------------------------------------
+# MAIN LOOP
+# ---------------------------------------------------------
 
 def main():
-    global current_df, current_df_name, second_df, merged_df, analysis_df, license_valid, license_message
+    global current_df, current_df_name, second_df, merged_df, analysis_df
+    global license_valid, license_message
 
-    window = sg.Window("Excel Automator v0.2", make_layout(), resizable=True, finalize=True)
+    window = sg.Window("Excel Automator Pro", make_layout(), resizable=True, finalize=True)
 
-    # Lizenz beim Start prüfen
+    # Lizenz prüfen
     machine_id = get_machine_id()
     saved_key = load_saved_license(LICENSE_FILE)
+
     if saved_key:
         ok, msg = validate_license_key(machine_id, saved_key)
         license_valid = ok
         license_message = msg
     else:
         license_valid = False
-        license_message = "Keine Lizenz gefunden. Bitte Lizenzschlüssel eingeben."
+        license_message = "Keine Lizenz gespeichert. Bitte Lizenz eingeben."
 
-    window["-LIC_STATUS-"].update(license_message)
-    if not license_valid:
-        show_message(window, "Keine gültige Lizenz. Einige Funktionen sind eingeschränkt.")
-    else:
-        show_message(window, "Lizenz gültig. Voller Funktionsumfang verfügbar.")
+    try:
+        window["-LIC_STATUS-"].update(license_message)
+    except Exception:
+        print("WARN: -LIC_STATUS- nicht gefunden – Layout prüfen.")
 
+    # -------------------------
+    # EVENT LOOP
+    # -------------------------
     while True:
         event, values = window.read()
 
         if event == sg.WIN_CLOSED:
             break
 
-        # --------------- Lizenz speichern/prüfen ---------------
+        if event is None:
+            continue
+
+        print("EVENT:", event)  # Debug-Ausgabe
+
+        # ---------------------------------
+        # LIZENZ
+        # ---------------------------------
         if event == "-BTN_LIC_SAVE-":
             key = values["-LIC_KEY-"].strip()
-            if not key:
-                window["-LIC_STATUS-"].update("Bitte einen Lizenzschlüssel eingeben.")
-                show_message(window, "Kein Lizenzschlüssel eingegeben.")
+            ok, msg = validate_license_key(machine_id, key)
+            license_valid = ok
+            license_message = msg
+            window["-LIC_STATUS-"].update(msg)
+
+            if ok:
+                save_license_key(LICENSE_FILE, key)
+                show_message(window, "Lizenz gespeichert.")
             else:
-                ok, msg = validate_license_key(machine_id, key)
-                license_valid = ok
-                license_message = msg
-                window["-LIC_STATUS-"].update(msg)
-                if ok:
-                    save_license_key(LICENSE_FILE, key)
-                    show_message(window, "Lizenz gültig und gespeichert.")
-                else:
-                    show_message(window, "Lizenz ungültig. Bitte prüfen.")
+                show_message(window, "Lizenz ungültig.")
 
-        # --------------- Import ---------------
-
+        # ---------------------------------
+        # IMPORT
+        # ---------------------------------
         if event == "-BTN_LOAD-":
+            print("DEBUG: BTN_LOAD ausgelöst")
             if not license_valid:
-                show_message(window, "Keine gültige Lizenz. Import ist gesperrt.")
+                show_message(window, "Lizenz ungültig – Import gesperrt.")
                 continue
 
-            filepath = values["-IMPORT_FILE-"]
-            if not filepath:
-                show_message(window, "Bitte zuerst eine Datei auswählen.")
+            path = values["-IMPORT_FILE-"]
+            if not path:
+                show_message(window, "Bitte Datei auswählen.")
                 continue
+
             try:
-                current_df = load_file(filepath)
-                current_df_name = Path(filepath).name
-                txt = profile_dataframe(current_df, current_df_name)
-                window["-IMPORT_INFO-"].update(txt)
-                show_message(window, f"Datei geladen: {current_df_name}")
+                current_df = load_file(path)
+                current_df_name = Path(path).name
+                window["-IMPORT_INFO-"].update(profile_dataframe(current_df, current_df_name))
                 update_column_dropdowns(window)
+                show_message(window, f"Datei geladen: {current_df_name}")
             except Exception as e:
-                logger.exception("Fehler beim Laden der Datei.")
-                window["-IMPORT_INFO-"].update(f"Fehler beim Laden:\n{e}")
-                show_message(window, "Fehler beim Laden der Datei. Details im Log.")
+                window["-IMPORT_INFO-"].update(str(e))
+                show_message(window, "Fehler beim Import.")
 
-        # --------------- Cleaning ---------------
-
+        # ---------------------------------
+        # CLEANING
+        # ---------------------------------
         if event == "-BTN_CLEAN-":
+            print("DEBUG: BTN_CLEAN ausgelöst")
             if not license_valid:
-                show_message(window, "Keine gültige Lizenz. Bereinigung ist gesperrt.")
+                show_message(window, "Lizenz ungültig – Bereinigung gesperrt.")
                 continue
 
             if current_df is None:
-                show_message(window, "Keine aktiven Daten vorhanden. Bitte zuerst Datei laden.")
+                show_message(window, "Keine Daten geladen.")
                 continue
 
             remove_empty = values["-CLEAN_EMPTY-"]
-            dup_col = values["-CLEAN_DUP_COL-"] or None
+            dup_col = values["-CLEAN_DUP_COL-"]
 
             try:
-                before_rows = len(current_df)
-                current_df = clean_dataframe(current_df, remove_empty_rows=remove_empty, duplicate_subset=dup_col)
-                after_rows = len(current_df)
-                txt = f"Bereinigung abgeschlossen.\nZeilen vorher: {before_rows}\nZeilen nachher: {after_rows}"
-                window["-CLEAN_INFO-"].update(txt)
-                show_message(window, "Bereinigung erfolgreich.")
-                window["-IMPORT_INFO-"].update(profile_dataframe(current_df, current_df_name))
-                update_column_dropdowns(window)
-            except Exception as e:
-                logger.exception("Fehler bei Bereinigung.")
-                window["-CLEAN_INFO-"].update(f"Fehler bei Bereinigung:\n{e}")
-                show_message(window, "Fehler bei Bereinigung. Details im Log.")
-
-        # --------------- Merge ---------------
-
-        if event == "-BTN_LOAD_SECOND-":
-            if not license_valid:
-                show_message(window, "Keine gültige Lizenz. Merge-Funktionen sind gesperrt.")
-                continue
-
-            filepath = values["-MERGE_FILE-"]
-            if not filepath:
-                show_message(window, "Bitte zweite Datei auswählen.")
-                continue
-            try:
-                second_df = load_file(filepath)
-                window["-MERGE_INFO-"].update(
-                    "Zweite Datei geladen:\n" + profile_dataframe(second_df, Path(filepath).name)
+                before = len(current_df)
+                current_df = clean_dataframe(
+                    current_df,
+                    remove_empty_rows=remove_empty,
+                    duplicate_subset=dup_col or None,
                 )
-                show_message(window, f"Zweite Datei geladen: {Path(filepath).name}")
-                update_merge_right_dropdown(window)
+                after = len(current_df)
+                window["-CLEAN_INFO-"].update(
+                    f"Bereinigung abgeschlossen:\nVorher: {before}\nNachher: {after}"
+                )
+                update_column_dropdowns(window)
+                show_message(window, "Bereinigung erfolgreich.")
             except Exception as e:
-                logger.exception("Fehler beim Laden der zweiten Datei.")
-                window["-MERGE_INFO-"].update(f"Fehler beim Laden der zweiten Datei:\n{e}")
-                show_message(window, "Fehler beim Laden der zweiten Datei. Details im Log.")
+                window["-CLEAN_INFO-"].update(str(e))
+                show_message(window, "Fehler bei Bereinigung.")
 
+        # ---------------------------------
+        # MERGE: Zweite Datei laden
+        # ---------------------------------
+        if event == "-BTN_LOAD_SECOND-":
+            print("DEBUG: BTN_LOAD_SECOND ausgelöst")
+            path = values["-MERGE_FILE-"]
+            if not path:
+                show_message(window, "Bitte Datei wählen.")
+                continue
+            try:
+                second_df = load_file(path)
+                update_merge_right_dropdown(window)
+                window["-MERGE_INFO-"].update(
+                    "Zweite Datei geladen.\n" + profile_dataframe(second_df, Path(path).name)
+                )
+                show_message(window, "Zweite Datei geladen.")
+            except Exception as e:
+                window["-MERGE_INFO-"].update(str(e))
+                show_message(window, "Fehler beim Laden.")
+
+        # ---------------------------------
+        # MERGE ausführen
+        # ---------------------------------
         if event == "-BTN_MERGE-":
-            if not license_valid:
-                show_message(window, "Keine gültige Lizenz. Merge-Funktionen sind gesperrt.")
-                continue
-
+            print("DEBUG: BTN_MERGE ausgelöst")
             if current_df is None or second_df is None:
-                show_message(window, "Für Merge werden aktive Daten und zweite Datei benötigt.")
+                show_message(window, "Beide Dateien nötig.")
                 continue
 
-            left_key = values["-MERGE_LEFT_KEY-"]
-            right_key = values["-MERGE_RIGHT_KEY-"]
-            how = values["-MERGE_HOW-"] or "inner"
-
-            if not left_key or not right_key:
-                show_message(window, "Bitte beide Schlüsselspalten auswählen.")
-                continue
+            left = values["-MERGE_LEFT_KEY-"]
+            right = values["-MERGE_RIGHT_KEY-"]
+            how = values["-MERGE_HOW-"]
 
             try:
-                merged_df = merge_dataframes(current_df, second_df, left_key, right_key, how=how)
-                current_df = merged_df
-                current_df_name = f"Merge({current_df_name})"
+                merged = merge_dataframes(current_df, second_df, left, right, how)
+                current_df = merged
+                update_column_dropdowns(window)
                 window["-MERGE_INFO-"].update(
-                    "Merge erfolgreich.\n" + profile_dataframe(current_df, current_df_name)
+                    "Merge erfolgreich.\n" + profile_dataframe(current_df, "Merge")
                 )
                 show_message(window, "Merge erfolgreich.")
-                window["-IMPORT_INFO-"].update(profile_dataframe(current_df, current_df_name))
-                update_column_dropdowns(window)
             except Exception as e:
-                logger.exception("Fehler beim Merge.")
-                window["-MERGE_INFO-"].update(f"Fehler beim Merge:\n{e}")
-                show_message(window, "Fehler beim Merge. Details im Log.")
+                window["-MERGE_INFO-"].update(str(e))
+                show_message(window, "Fehler bei Merge.")
 
-        # --------------- Quick-Analyse per Spaltenklick ---------------
-
+        # ---------------------------------
+        # Quick Analyse (Spaltenliste)
+        # ---------------------------------
         if event == "-ANALYSIS_COL_LIST-":
-            if not license_valid:
-                show_message(window, "Keine gültige Lizenz. Analyse ist gesperrt.")
-                continue
-
+            print("DEBUG: ANALYSIS_COL_LIST ausgelöst")
             if current_df is None:
-                show_message(window, "Keine aktiven Daten vorhanden.")
                 continue
-
-            selected_cols = values["-ANALYSIS_COL_LIST-"]
-            if not selected_cols:
-                continue
-
-            col = selected_cols[0]
-
+            col = values["-ANALYSIS_COL_LIST-"][0]
             try:
-                quick_df = quick_column_insight(current_df, col)
-                analysis_df = quick_df
-                preview = quick_df.to_string()
-                window["-ANALYSIS_INFO-"].update(
-                    f"Schnell-Analyse für Spalte: {col}\n\n" + preview
-                )
-                show_message(window, f"Schnell-Analyse für '{col}' erstellt.")
+                df = quick_column_insight(current_df, col)
+                window["-ANALYSIS_INFO-"].update(df.to_string())
+                analysis_df = df
+                show_message(window, f"Schnell-Analyse: {col}")
             except Exception as e:
-                logger.exception("Fehler bei Quick-Analyse.")
-                window["-ANALYSIS_INFO-"].update(f"Fehler bei Quick-Analyse:\n{e}")
-                show_message(window, "Fehler bei Quick-Analyse. Details im Log.")
+                window["-ANALYSIS_INFO-"].update(str(e))
+                show_message(window, "Fehler bei Quick Analyse.")
 
-        # --------------- Analyse ---------------
-
+        # ---------------------------------
+        # Standard Analyse
+        # ---------------------------------
         if event == "-BTN_ANALYSIS-":
-            if not license_valid:
-                show_message(window, "Keine gültige Lizenz. Analyse ist gesperrt.")
-                continue
-
+            print("DEBUG: BTN_ANALYSIS ausgelöst")
             if current_df is None:
-                show_message(window, "Keine aktiven Daten vorhanden.")
                 continue
 
-            group1 = values["-ANALYSIS_GROUP1-"]
-            group2 = values["-ANALYSIS_GROUP2-"]
-            agg_col = values["-ANALYSIS_AGG_COL-"]
-            func = values["-ANALYSIS_FUNC-"] or "sum"
+            g1 = values["-ANALYSIS_GROUP1-"]
+            g2 = values["-ANALYSIS_GROUP2-"]
+            agg = values["-ANALYSIS_AGG_COL-"]
+            func = values["-ANALYSIS_FUNC-"]
 
-            group_cols = [c for c in [group1, group2] if c]
-
-            if not group_cols or not agg_col:
-                show_message(window, "Bitte mindestens eine Gruppierspalte und eine Aggregationsspalte wählen.")
-                continue
+            group_cols = [c for c in (g1, g2) if c]
 
             try:
-                analysis_df = basic_group_analysis(current_df, group_cols, agg_col, agg_func=func)
-                preview = analysis_df.head(50).to_string()
-                window["-ANALYSIS_INFO-"].update(
-                    "Analyse erfolgreich.\n" + preview
-                )
+                df = basic_group_analysis(current_df, group_cols, agg, func)
+                analysis_df = df
+                window["-ANALYSIS_INFO-"].update(df.to_string())
                 show_message(window, "Analyse erfolgreich.")
             except Exception as e:
-                logger.exception("Fehler bei Analyse.")
-                window["-ANALYSIS_INFO-"].update(f"Fehler bei Analyse:\n{e}")
-                show_message(window, "Fehler bei Analyse. Details im Log.")
+                window["-ANALYSIS_INFO-"].update(str(e))
+                show_message(window, "Analyse fehlgeschlagen.")
 
-        # --------------- Export ---------------
+        # ---------------------------------
+        # Advanced Analysis (falls vorhanden)
+        # ---------------------------------
+        if ADVANCED_AVAILABLE:
+            if event == "-BTN_TOPLISTS-":
+                print("DEBUG: BTN_TOPLISTS ausgelöst")
+                df = generate_top_lists(current_df)
+                txt = ""
+                for col, serie in df.items():
+                    txt += f"Top Werte {col}:\n{serie.to_string()}\n\n"
+                window["-ANALYSIS_INFO-"].update(txt)
+                show_message(window, "Top-Listen erstellt.")
 
+            if event == "-BTN_TIMESERIES-":
+                print("DEBUG: BTN_TIMESERIES ausgelöst")
+                ts = time_series_analysis(current_df)
+                out = ""
+                for col, groups in ts.items():
+                    out += f"Zeitreihe {col}:\n"
+                    for name, ser in groups.items():
+                        out += f"{name}:\n{ser.to_string()}\n\n"
+                window["-ANALYSIS_INFO-"].update(out)
+
+            if event == "-BTN_KPIS-":
+                print("DEBUG: BTN_KPIS ausgelöst")
+                k = generate_kpis(current_df)
+                out = "\n".join(f"{key}: {value}" for key, value in k.items())
+                window["-ANALYSIS_INFO-"].update(out)
+
+            if event == "-BTN_INSIGHTS-":
+                print("DEBUG: BTN_INSIGHTS ausgelöst")
+                window["-ANALYSIS_INFO-"].update(quick_insights(current_df))
+
+        # ---------------------------------
+        # EXPORT
+        # ---------------------------------
         if event == "-BTN_EXPORT-":
-            if not license_valid:
-                show_message(window, "Keine gültige Lizenz. Export ist gesperrt.")
-                continue
-
-            export_path = values["-EXPORT_FILE-"]
-            if not export_path:
-                show_message(window, "Bitte Exportdatei wählen.")
+            print("DEBUG: BTN_EXPORT ausgelöst")
+            path = values["-EXPORT_FILE-"]
+            if not path:
+                show_message(window, "Bitte Datei nennen.")
                 continue
 
             export_main = values["-EXPORT_MAIN-"]
-            export_analysis_flag = values["-EXPORT_ANALYSIS-"]
+            export_analysis = values["-EXPORT_ANALYSIS-"]
 
-            if not export_main and not export_analysis_flag:
-                show_message(window, "Bitte mindestens einen Export auswählen.")
-                continue
-
-            main_df_to_export = current_df if export_main and current_df is not None else None
-            analysis_to_export = analysis_df if export_analysis_flag and analysis_df is not None else None
-
-            if main_df_to_export is None and analysis_to_export is None:
-                show_message(window, "Keine Daten zum Export verfügbar.")
-                continue
+            df_main = current_df if export_main else None
+            df_analysis = analysis_df if export_analysis else None
 
             try:
-                export_to_excel(export_path, main_df_to_export, analysis_to_export)
-                window["-EXPORT_INFO-"].update(f"Export erfolgreich nach:\n{export_path}")
+                export_to_excel(path, df_main, df_analysis)
+                window["-EXPORT_INFO-"].update(f"Export erfolgreich:\n{path}")
                 show_message(window, "Export erfolgreich.")
             except Exception as e:
-                logger.exception("Fehler beim Export.")
-                window["-EXPORT_INFO-"].update(f"Fehler beim Export:\n{e}")
-                show_message(window, "Fehler beim Export. Details im Log.")
+                window["-EXPORT_INFO-"].update(str(e))
+                show_message(window, "Fehler beim Export.")
 
-        # --------------- Jobs ---------------
-
+        # ---------------------------------
+        # JOB speichern
+        # ---------------------------------
         if event == "-BTN_JOB_SAVE-":
-            if not license_valid:
-                show_message(window, "Keine gültige Lizenz. Jobs sind gesperrt.")
-                continue
-
+            print("DEBUG: BTN_JOB_SAVE ausgelöst")
             name = values["-JOB_NAME-"].strip()
-            job_in = values["-JOB_IN-"].strip()
-            job_out = values["-JOB_OUT-"].strip()
+            input_file = values["-JOB_IN-"]
+            output_file = values["-JOB_OUT-"]
             clean_empty = values["-JOB_CLEAN_EMPTY-"]
-            dup_col = values["-JOB_DUP_COL-"].strip() or None
+            dup_col = values["-JOB_DUP_COL-"]
 
-            if not name or not job_in or not job_out:
-                show_message(window, "Job-Name, Eingabe- und Ausgabedatei werden benötigt.")
+            if not name or not input_file or not output_file:
+                show_message(window, "Bitte alles ausfüllen.")
                 continue
 
-            job_config = {
+            config = {
                 "name": name,
-                "input": job_in,
-                "output": job_out,
+                "input": input_file,
+                "output": output_file,
                 "clean_empty": clean_empty,
-                "dup_col": dup_col
+                "dup_col": dup_col or None,
             }
 
-            job_file = JOBS_DIR / f"{name}.json"
-            try:
-                save_job(job_config, str(job_file))
-                window["-JOB_INFO-"].update(f"Job gespeichert unter:\n{job_file}")
-                show_message(window, "Job gespeichert.")
-            except Exception as e:
-                logger.exception("Fehler beim Speichern des Jobs.")
-                window["-JOB_INFO-"].update(f"Fehler beim Speichern des Jobs:\n{e}")
-                show_message(window, "Fehler beim Speichern des Jobs. Details im Log.")
+            job_path = JOBS_DIR / f"{name}.json"
 
+            save_job(config, str(job_path))
+            window["-JOB_INFO-"].update(f"Job gespeichert unter:\n{job_path}")
+            show_message(window, "Job gespeichert.")
+
+        # ---------------------------------
+        # JOB ausführen
+        # ---------------------------------
         if event == "-BTN_JOB_RUN-":
-            if not license_valid:
-                show_message(window, "Keine gültige Lizenz. Jobs sind gesperrt.")
-                continue
+            print("DEBUG: BTN_JOB_RUN ausgelöst")
+            jobfile = values["-JOB_FILE-"]
 
-            job_file = values["-JOB_FILE-"].strip()
-            if not job_file:
-                show_message(window, "Bitte eine Job-Datei auswählen.")
+            if not jobfile:
+                show_message(window, "Bitte Job wählen.")
                 continue
 
             try:
-                job_config = load_job(job_file)
-                job_in = job_config["input"]
-                job_out = job_config["output"]
-                clean_empty = job_config.get("clean_empty", True)
-                dup_col = job_config.get("dup_col", None)
-
-                df = load_file(job_in)
-                df = clean_dataframe(df, remove_empty_rows=clean_empty, duplicate_subset=dup_col)
-                export_to_excel(job_out, df, None)
-
-                window["-JOB_INFO-"].update(
-                    f"Job erfolgreich ausgeführt.\nEingabe: {job_in}\nAusgabe: {job_out}"
+                job = load_job(jobfile)
+                df = load_file(job["input"])
+                df = clean_dataframe(
+                    df,
+                    remove_empty_rows=job["clean_empty"],
+                    duplicate_subset=job["dup_col"],
                 )
-                show_message(window, "Job erfolgreich ausgeführt.")
+                export_to_excel(job["output"], df, None)
+
+                window["-JOB_INFO-"].update(f"Job ausgeführt.\nOutput: {job['output']}")
+                show_message(window, "Job erfolgreich.")
             except Exception as e:
-                logger.exception("Fehler beim Ausführen des Jobs.")
-                window["-JOB_INFO-"].update(f"Fehler beim Job:\n{e}")
-                show_message(window, "Fehler beim Job. Details im Log.")
+                window["-JOB_INFO-"].update(str(e))
+                show_message(window, "Fehler bei Job.")
 
-        # --------------- PPTX-Export ---------------
-
+        # ---------------------------------
+        # PPTX EXPORT
+        # ---------------------------------
         if event == "-BTN_PPTX_EXPORT-":
-            if not license_valid:
-                show_message(window, "Keine gültige Lizenz. PPTX-Export ist gesperrt.")
+            print("DEBUG: BTN_PPTX_EXPORT ausgelöst")
+            if analysis_df is None:
+                show_message(window, "Keine Analyse vorhanden.")
                 continue
 
-            if analysis_df is None or analysis_df.empty:
-                show_message(window, "Keine Analyse-Daten vorhanden. Bitte zuerst eine Analyse ausführen.")
-                window["-PPTX_INFO-"].update("Keine Analyse-Daten vorhanden.\nBitte zuerst im Tab 'Analyse' eine Auswertung erstellen.")
-                continue
-
-            pptx_path = values["-PPTX_FILE-"].strip()
-            title = values["-PPTX_TITLE-"].strip() or "Automatisierter Auswertungsreport"
-            subtitle = values["-PPTX_SUBTITLE-"].strip() or "Erstellt mit Excel Automator"
-
-            if not pptx_path:
-                show_message(window, "Bitte eine Zieldatei für den PowerPoint-Export angeben.")
-                continue
+            path = values["-PPTX_FILE-"]
+            title = values["-PPTX_TITLE-"]
+            subtitle = values["-PPTX_SUBTITLE-"]
 
             try:
-                out_path = export_analysis_to_pptx(pptx_path, analysis_df, title=title, subtitle=subtitle)
-                window["-PPTX_INFO-"].update(f"PPTX-Report erfolgreich erstellt:\n{out_path}")
-                show_message(window, "PPTX-Report erfolgreich erstellt.")
+                out = export_analysis_to_pptx(path, analysis_df, title, subtitle)
+                window["-PPTX_INFO-"].update(f"Report erstellt:\n{out}")
+                show_message(window, "PPTX Export erfolgreich.")
             except Exception as e:
-                logger.exception("Fehler beim PowerPoint-Export.")
-                window["-PPTX_INFO-"].update(f"Fehler beim PowerPoint-Export:\n{e}")
-                show_message(window, "Fehler beim PowerPoint-Export. Details im Log.")
+                window["-PPTX_INFO-"].update(str(e))
+                show_message(window, "Fehler bei PPTX.")
+
+        # ---------------------------------
+        # Navigation
+        # ---------------------------------
+        if event.startswith("-NAV_"):
+            print("DEBUG: Navigation ausgelöst:", event)
+            for page in [
+                "-PAGE_IMPORT-",
+                "-PAGE_CLEAN-",
+                "-PAGE_MERGE-",
+                "-PAGE_ANALYSIS-",
+                "-PAGE_EXPORT-",
+                "-PAGE_JOBS-",
+                "-PAGE_PPTX-",
+                "-PAGE_LICENSE-",
+                "-PAGE_IMPRINT-",
+            ]:
+                window[page].update(visible=False)
+
+            target = event.replace("-NAV_", "-PAGE_")
+            window[target].update(visible=True)
+            show_message(window, f"Seite gewechselt: {target}")
 
     window.close()
 
 
 if __name__ == "__main__":
-    print("Starte Excel Automator v0.2...")
+    print("Starte Excel Automator Pro…")
     main()
     print("Programm beendet.")
