@@ -43,6 +43,12 @@ from ea_core.license import (
     save_license_key,
     validate_license_key,
 )
+from ea_core.validation import (
+    validate_numeric_range,
+    validate_date_range,
+    normalize_text_column,
+)
+
 
 # OPTIONAL: Falls Modul existiert
 try:
@@ -114,13 +120,19 @@ def update_column_dropdowns(window):
         cols = []
     else:
         cols = list(current_df.columns)
-
+    #Cleaning
     window["-CLEAN_DUP_COL-"].update(values=cols)
+    #Merge
     window["-MERGE_LEFT_KEY-"].update(values=cols)
+    #Analysis
     window["-ANALYSIS_GROUP1-"].update(values=cols)
     window["-ANALYSIS_GROUP2-"].update(values=[""] + cols)
     window["-ANALYSIS_AGG_COL-"].update(values=cols)
     window["-ANALYSIS_COL_LIST-"].update(values=cols)
+    #Validation
+    window["-VAL_NUM_COL-"].update(values=cols)
+    window["-VAL_DATE_COL-"].update(values=cols)
+    window["-VAL_TEXT_COL-"].update(values=cols)
 
 
 def update_merge_right_dropdown(window):
@@ -193,27 +205,72 @@ def make_layout():
         visible=True,
     )
 
-    # ---------- Cleaning ----------
-    page_clean = sg.Column(
-        [
-            [sg.Text("Bereinigung der aktiven Daten", font=("Segoe UI", 10, "bold"))],
-            [sg.Checkbox("Leere Zeilen entfernen", default=True, key="-CLEAN_EMPTY-")],
+        # ---------- Cleaning + Validation ----------
+    page_clean = sg.Column([
+        [sg.Text("Bereinigung & Validierung der aktiven Daten", font=("Segoe UI", 10, "bold"))],
+
+        # --- Block: klassische Bereinigung ---
+        [sg.Frame(
+            "Bereinigung",
             [
-                sg.Text("Duplikate entfernen anhand Spalte:"),
-                sg.Combo([], key="-CLEAN_DUP_COL-", size=(30, 1)),
+                [sg.Checkbox("Leere Zeilen entfernen", default=True, key="-CLEAN_EMPTY-")],
+                [
+                    sg.Text("Duplikate entfernen anhand Spalte:"),
+                    sg.Combo([], key="-CLEAN_DUP_COL-", size=(30, 1))
+                ],
+                [sg.Button("Bereinigung ausführen", key="-BTN_CLEAN-", button_color=("white", COLOR_PRIMARY))]
             ],
+            background_color=COLOR_CARD,
+            pad=(10, 10),
+        )],
+
+        # --- Block: Validierung ---
+        [sg.Frame(
+            "Datenprüfung & Validierung",
             [
-                sg.Button(
-                    "Bereinigung ausführen",
-                    key="-BTN_CLEAN-",
-                    button_color=("white", COLOR_PRIMARY),
-                )
+                [sg.Text("Numerische Prüfung:", font=("Segoe UI", 9, "bold"))],
+                [
+                    sg.Text("Spalte:", size=(8, 1)),
+                    sg.Combo([], key="-VAL_NUM_COL-", size=(25, 1)),
+                    sg.Text("Min:", size=(4, 1)),
+                    sg.Input(key="-VAL_NUM_MIN-", size=(8, 1)),
+                    sg.Text("Max:", size=(4, 1)),
+                    sg.Input(key="-VAL_NUM_MAX-", size=(8, 1)),
+                ],
+                [sg.Text("Datumsprüfung (z.B. 2020-01-01 oder 01.01.2020):", font=("Segoe UI", 9, "bold"))],
+                [
+                    sg.Text("Spalte:", size=(8, 1)),
+                    sg.Combo([], key="-VAL_DATE_COL-", size=(25, 1)),
+                    sg.Text("Min:", size=(4, 1)),
+                    sg.Input(key="-VAL_DATE_MIN-", size=(10, 1)),
+                    sg.Text("Max:", size=(4, 1)),
+                    sg.Input(key="-VAL_DATE_MAX-", size=(10, 1)),
+                ],
+                [sg.Text("Text-Normalisierung:", font=("Segoe UI", 9, "bold"))],
+                [
+                    sg.Text("Spalte:", size=(8, 1)),
+                    sg.Combo([], key="-VAL_TEXT_COL-", size=(25, 1)),
+                    sg.Text("Modus:", size=(6, 1)),
+                    sg.Combo(
+                        [
+                            "Großschreibung (UPPER)",
+                            "Kleinschreibung (lower)",
+                            "Title Case",
+                        ],
+                        default_value="Großschreibung (UPPER)",
+                        key="-VAL_TEXT_MODE-",
+                        size=(24, 1),
+                    ),
+                ],
+                [sg.Button("Daten prüfen", key="-BTN_VALIDATE-", button_color=("white", COLOR_PRIMARY))],
             ],
-            [sg.Multiline(size=(80, 12), key="-CLEAN_INFO-")],
-        ],
-        key="-PAGE_CLEAN-",
-        visible=False,
-    )
+            background_color=COLOR_CARD,
+            pad=(10, 10),
+        )],
+
+        # Ausgabe für Bereinigung + Validierung
+        [sg.Multiline(size=(80, 12), key="-CLEAN_INFO-")],
+    ], key="-PAGE_CLEAN-", visible=False)
 
     # ---------- Merge ----------
     page_merge = sg.Column(
@@ -602,6 +659,71 @@ def main():
             except Exception as e:
                 window["-CLEAN_INFO-"].update(str(e))
                 show_message(window, "Fehler bei Bereinigung.")
+                # ---------------------------------
+        # VALIDIERUNG (B, C, D)
+        # ---------------------------------
+        if event == "-BTN_VALIDATE-":
+            if not license_valid:
+                show_message(window, "Lizenz ungültig – Validierung gesperrt.")
+                continue
+
+            if current_df is None:
+                show_message(window, "Keine Daten geladen – bitte zuerst Datei importieren.")
+                continue
+
+            reports = []
+
+            # --- numerische Prüfung ---
+            num_col = values["-VAL_NUM_COL-"]
+            num_min = values["-VAL_NUM_MIN-"].strip()
+            num_max = values["-VAL_NUM_MAX-"].strip()
+
+            def _parse_float_safe(val: str):
+                if not val:
+                    return None
+                try:
+                    return float(val.replace(",", "."))
+                except ValueError:
+                    return None
+
+            if num_col:
+                min_val = _parse_float_safe(num_min)
+                max_val = _parse_float_safe(num_max)
+                res_num = validate_numeric_range(current_df, num_col, min_val, max_val)
+                reports.append(res_num.message)
+
+            # --- Datumsprüfung ---
+            date_col = values["-VAL_DATE_COL-"]
+            date_min = values["-VAL_DATE_MIN-"].strip()
+            date_max = values["-VAL_DATE_MAX-"].strip()
+
+            if date_col:
+                res_date = validate_date_range(current_df, date_col, date_min, date_max)
+                reports.append(res_date.message)
+
+            # --- Text-Normalisierung ---
+            text_col = values["-VAL_TEXT_COL-"]
+            mode_raw = values["-VAL_TEXT_MODE-"]
+
+            mode_map = {
+                "Großschreibung (UPPER)": "upper_strip",
+                "Kleinschreibung (lower)": "lower_strip",
+                "Title Case": "title_strip",
+            }
+            mode = mode_map.get(mode_raw, "upper_strip")
+
+            if text_col:
+                current_df, res_text = normalize_text_column(current_df, text_col, mode=mode)
+                reports.append(res_text.message)
+                # Spaltenliste aktualisieren, da neue *_norm-Spalte hinzugekommen sein kann
+                update_column_dropdowns(window)
+
+            if reports:
+                window["-CLEAN_INFO-"].update("\n\n".join(reports))
+                show_message(window, "Validierung abgeschlossen.")
+            else:
+                window["-CLEAN_INFO-"].update("Keine Prüfregeln ausgewählt.")
+                show_message(window, "Keine Prüfregeln ausgewählt.")
 
         # ---------------------------------
         # MERGE: Zweite Datei laden
