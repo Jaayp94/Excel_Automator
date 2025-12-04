@@ -25,6 +25,7 @@ imports:
  &#8226;   <a href="#codecs">codecs</a>
  &#8226;   <a href="#collections">collections</a>
  &#8226;   <a href="#copyreg">copyreg</a>
+ &#8226;   <a href="#ea_core.advanced_analysis">ea_core.advanced_analysis</a>
  &#8226;   <a href="#ea_core.analysis">ea_core.analysis</a>
  &#8226;   <a href="#ea_core.cleaning">ea_core.cleaning</a>
  &#8226;   <a href="#ea_core.exporting">ea_core.exporting</a>
@@ -33,6 +34,7 @@ imports:
  &#8226;   <a href="#ea_core.license">ea_core.license</a>
  &#8226;   <a href="#ea_core.merge">ea_core.merge</a>
  &#8226;   <a href="#ea_core.ppt_export">ea_core.ppt_export</a>
+ &#8226;   <a href="#ea_core.validation">ea_core.validation</a>
  &#8226;   <a href="#encodings">encodings</a>
  &#8226;   <a href="#encodings.aliases">encodings.aliases</a>
  &#8226;   <a href="#encodings.ascii">encodings.ascii</a>
@@ -3472,6 +3474,8 @@ imported by:
  &#8226;   <a href="#cycler">cycler</a>
  &#8226;   <a href="#dateutil.parser._parser">dateutil.parser._parser</a>
  &#8226;   <a href="#doctest">doctest</a>
+ &#8226;   <a href="#ea_core.license">ea_core.license</a>
+ &#8226;   <a href="#ea_core.validation">ea_core.validation</a>
  &#8226;   <a href="#et_xmlfile.xmlfile">et_xmlfile.xmlfile</a>
  &#8226;   <a href="#importlib.metadata">importlib.metadata</a>
  &#8226;   <a href="#importlib.metadata._meta">importlib.metadata._meta</a>
@@ -7623,7 +7627,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#matplotlib._text_helpers">matplotlib._text_helpers</a>
+    <a href="#ea_core.validation">ea_core.validation</a>
+ &#8226;   <a href="#matplotlib._text_helpers">matplotlib._text_helpers</a>
  &#8226;   <a href="#matplotlib.font_manager">matplotlib.font_manager</a>
  &#8226;   <a href="#pandas.core.dtypes.inference">pandas.core.dtypes.inference</a>
  &#8226;   <a href="#pandas.core.groupby.base">pandas.core.groupby.base</a>
@@ -7662,6 +7667,7 @@ imported by:
  &#8226;   <a href="#dateutil.tz.tz">dateutil.tz.tz</a>
  &#8226;   <a href="#dateutil.tz.win">dateutil.tz.win</a>
  &#8226;   <a href="#ea_core.license">ea_core.license</a>
+ &#8226;   <a href="#ea_core.validation">ea_core.validation</a>
  &#8226;   <a href="#email.utils">email.utils</a>
  &#8226;   <a href="#http.cookiejar">http.cookiejar</a>
  &#8226;   <a href="#http.server">http.server</a>
@@ -8277,7 +8283,8 @@ imported by:
   <a target="code" href="///C:/Users/Admin/Documents/Python/Selbstst%C3%A4ndigkeit/excel_automator/ea_core/__init__.py" type="text/plain"><tt>ea_core</tt></a>
 <span class="moduletype">Package</span>  <div class="import">
 imported by:
-    <a href="#ea_core.analysis">ea_core.analysis</a>
+    <a href="#ea_core.advanced_analysis">ea_core.advanced_analysis</a>
+ &#8226;   <a href="#ea_core.analysis">ea_core.analysis</a>
  &#8226;   <a href="#ea_core.cleaning">ea_core.cleaning</a>
  &#8226;   <a href="#ea_core.exporting">ea_core.exporting</a>
  &#8226;   <a href="#ea_core.io_functions">ea_core.io_functions</a>
@@ -8285,6 +8292,25 @@ imported by:
  &#8226;   <a href="#ea_core.license">ea_core.license</a>
  &#8226;   <a href="#ea_core.merge">ea_core.merge</a>
  &#8226;   <a href="#ea_core.ppt_export">ea_core.ppt_export</a>
+ &#8226;   <a href="#ea_core.validation">ea_core.validation</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="ea_core.advanced_analysis"></a>
+  <a target="code" href="///C:/Users/Admin/Documents/Python/Selbstst%C3%A4ndigkeit/excel_automator/ea_core/advanced_analysis.py" type="text/plain"><tt>ea_core.advanced_analysis</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#ea_core">ea_core</a>
+ &#8226;   <a href="#numpy">numpy</a>
+ &#8226;   <a href="#pandas">pandas</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main.py">main.py</a>
 
   </div>
 
@@ -8384,12 +8410,15 @@ imported by:
   <a target="code" href="///C:/Users/Admin/Documents/Python/Selbstst%C3%A4ndigkeit/excel_automator/ea_core/license.py" type="text/plain"><tt>ea_core.license</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
-    <a href="#datetime">datetime</a>
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#datetime">datetime</a>
  &#8226;   <a href="#ea_core">ea_core</a>
  &#8226;   <a href="#hashlib">hashlib</a>
  &#8226;   <a href="#hmac">hmac</a>
  &#8226;   <a href="#json">json</a>
+ &#8226;   <a href="#os">os</a>
  &#8226;   <a href="#pathlib">pathlib</a>
+ &#8226;   <a href="#platform">platform</a>
  &#8226;   <a href="#typing">typing</a>
  &#8226;   <a href="#uuid">uuid</a>
 
@@ -8432,6 +8461,27 @@ imports:
  &#8226;   <a href="#pptx.chart.data">pptx.chart.data</a>
  &#8226;   <a href="#pptx.enum.chart">pptx.enum.chart</a>
  &#8226;   <a href="#pptx.util">pptx.util</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main.py">main.py</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="ea_core.validation"></a>
+  <a target="code" href="///C:/Users/Admin/Documents/Python/Selbstst%C3%A4ndigkeit/excel_automator/ea_core/validation.py" type="text/plain"><tt>ea_core.validation</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#dataclasses">dataclasses</a>
+ &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#ea_core">ea_core</a>
+ &#8226;   <a href="#pandas">pandas</a>
+ &#8226;   <a href="#typing">typing</a>
 
   </div>
   <div class="import">
@@ -19302,6 +19352,7 @@ imported by:
  &#8226;   <a href="#contourpy.convert">contourpy.convert</a>
  &#8226;   <a href="#contourpy.typecheck">contourpy.typecheck</a>
  &#8226;   <a href="#contourpy.types">contourpy.types</a>
+ &#8226;   <a href="#ea_core.advanced_analysis">ea_core.advanced_analysis</a>
  &#8226;   <a href="#matplotlib._cm">matplotlib._cm</a>
  &#8226;   <a href="#matplotlib._cm_bivar">matplotlib._cm_bivar</a>
  &#8226;   <a href="#matplotlib._constrained_layout">matplotlib._constrained_layout</a>
@@ -31028,6 +31079,7 @@ imported by:
  &#8226;   <a href="#ctypes.util">ctypes.util</a>
  &#8226;   <a href="#dateutil.tz.tz">dateutil.tz.tz</a>
  &#8226;   <a href="#doctest">doctest</a>
+ &#8226;   <a href="#ea_core.license">ea_core.license</a>
  &#8226;   <a href="#email.utils">email.utils</a>
  &#8226;   <a href="#fileinput">fileinput</a>
  &#8226;   <a href="#fnmatch">fnmatch</a>
@@ -31346,12 +31398,14 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#ea_core.analysis">ea_core.analysis</a>
+    <a href="#ea_core.advanced_analysis">ea_core.advanced_analysis</a>
+ &#8226;   <a href="#ea_core.analysis">ea_core.analysis</a>
  &#8226;   <a href="#ea_core.cleaning">ea_core.cleaning</a>
  &#8226;   <a href="#ea_core.exporting">ea_core.exporting</a>
  &#8226;   <a href="#ea_core.io_functions">ea_core.io_functions</a>
  &#8226;   <a href="#ea_core.merge">ea_core.merge</a>
  &#8226;   <a href="#ea_core.ppt_export">ea_core.ppt_export</a>
+ &#8226;   <a href="#ea_core.validation">ea_core.validation</a>
  &#8226;   <a href="#main.py">main.py</a>
  &#8226;   <a href="#pandas">pandas</a>
  &#8226;   <a href="#pandas._config">pandas._config</a>
@@ -44431,6 +44485,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#PySimpleGUI.PySimpleGUI">PySimpleGUI.PySimpleGUI</a>
+ &#8226;   <a href="#ea_core.license">ea_core.license</a>
  &#8226;   <a href="#numpy.f2py.crackfortran">numpy.f2py.crackfortran</a>
  &#8226;   <a href="#numpy.lib._utils_impl">numpy.lib._utils_impl</a>
  &#8226;   <a href="#numpy.testing._private.utils">numpy.testing._private.utils</a>
@@ -51356,6 +51411,7 @@ imported by:
  &#8226;   <a href="#contourpy.typecheck">contourpy.typecheck</a>
  &#8226;   <a href="#cycler">cycler</a>
  &#8226;   <a href="#ea_core.license">ea_core.license</a>
+ &#8226;   <a href="#ea_core.validation">ea_core.validation</a>
  &#8226;   <a href="#functools">functools</a>
  &#8226;   <a href="#importlib.metadata">importlib.metadata</a>
  &#8226;   <a href="#importlib.metadata._meta">importlib.metadata._meta</a>

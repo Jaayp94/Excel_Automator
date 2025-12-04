@@ -1,129 +1,186 @@
 # ea_core/license.py
 
-import hmac
+from __future__ import annotations
+
 import hashlib
-import uuid
+import hmac
 import json
-from datetime import datetime, date, timedelta
+import os
+import platform
+import uuid
+from datetime import datetime, date
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple, Union
+
+# -------------------------------------------------------------------
+# WICHTIG:
+# Diesen Schlüssel solltest du für deine "Produktiv-Version"
+# EINMAL zufällig generieren und dann nicht mehr ändern.
+# Beispiel: os.urandom(32).hex().encode("utf-8")
+# -------------------------------------------------------------------
+SECRET_KEY = b"CHANGE_THIS_TO_A_RANDOM_SECRET_32_BYTES_OR_MORE"
+APP_ID = "EXCEL_AUTOMATOR_PRO_V1"
+LICENSE_VERSION = "L1"  # für spätere Erweiterungen
 
 
-# Geheimer Schlüssel für die Lizenzsignatur
-# (In echt: schön zufällig lassen und NICHT rumgeben)
-_SECRET = b"ExcelAutomator-Lizenz-Secret-2025"
-_PREFIX = "EA1"  # Produkt-Kennung, z.B. Excel Automator v1
-
+# -------------------------------------------------------------------
+# Maschinen-ID
+# -------------------------------------------------------------------
 
 def get_machine_id() -> str:
     """
-    Gibt eine einfache Maschinen-ID zurück (basierend auf MAC-Adresse).
-    Wird für die Lizenzbindung verwendet.
+    Erzeugt eine relativ stabile Maschinen-ID auf Basis von Hostname und MAC.
+    Die ID ist gehasht (kein Klartext-MAC) und 16 Zeichen lang.
     """
-    mac = uuid.getnode()
-    return f"{mac:012X}"  # 12-stellig, HEX, z.B. 'A1B2C3D4E5F6'
-
-
-def _build_signature(machine_id: str, expiry_str: str) -> str:
-    """
-    Erzeugt eine HMAC-Signatur aus Maschinen-ID und Ablaufdatum (YYYYMMDD).
-    """
-    msg = f"{machine_id}|{expiry_str}".encode("utf-8")
-    sig = hmac.new(_SECRET, msg, hashlib.sha256).hexdigest().upper()
-    return sig[:8]  # auf 8 Zeichen kürzen
-
-
-def _parse_license_key(license_key: str) -> Tuple[str, str]:
-    """
-    Erwartetes Format: EA1-YYYYMMDD-XXXXXXXX
-    Rückgabe: (expiry_str, signature)
-    """
-    key = license_key.strip().upper().replace(" ", "")
-    parts = key.split("-")
-    if len(parts) != 3:
-        raise ValueError("Ungültiges Lizenzformat.")
-    prefix, expiry_str, sig = parts
-    if prefix != _PREFIX:
-        raise ValueError("Falsches Produktpräfix.")
-    if len(expiry_str) != 8 or not expiry_str.isdigit():
-        raise ValueError("Ungültiges Ablaufdatum im Lizenzschlüssel.")
-    if len(sig) < 4:
-        raise ValueError("Signatur zu kurz.")
-    return expiry_str, sig
-
-
-def validate_license_key(machine_id: str, license_key: str, today: date | None = None) -> Tuple[bool, str]:
-    """
-    Prüft, ob ein Lizenzschlüssel für diese Maschine gültig ist.
-    - Format
-    - Signatur
-    - Ablaufdatum
-
-    Rückgabe: (is_valid, nachricht)
-    """
-    if today is None:
-        today = date.today()
+    try:
+        node = platform.node()
+    except Exception:
+        node = "UNKNOWN_NODE"
 
     try:
-        expiry_str, sig = _parse_license_key(license_key)
-        expected_sig = _build_signature(machine_id, expiry_str)
+        mac = uuid.getnode()
+    except Exception:
+        mac = 0
 
-        if sig != expected_sig:
-            return False, "Lizenz ungültig: Signatur stimmt nicht."
-
-        expiry_date = datetime.strptime(expiry_str, "%Y%m%d").date()
-        if today > expiry_date:
-            return False, f"Lizenz abgelaufen am {expiry_date.isoformat()}."
-
-        return True, f"Lizenz gültig bis {expiry_date.isoformat()}."
-    except Exception as e:
-        return False, f"Lizenz ungültig: {e}"
+    raw = f"{node}-{mac}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest().upper()
+    # 16 Zeichen reichen für eine eindeutige ID und sind gut kopierbar
+    return digest[:16]
 
 
-def get_expiry_from_key(machine_id: str, license_key: str) -> date | None:
+# -------------------------------------------------------------------
+# Hilfsfunktionen
+# -------------------------------------------------------------------
+
+def _normalize_machine_id(machine_id: str) -> str:
+    return machine_id.strip().upper()
+
+
+def _build_payload(machine_id: str, expires_str: str) -> str:
     """
-    Liefert das Ablaufdatum aus einem Lizenzschlüssel, sofern gültig.
+    Payload ist die Basis für die Signatur.
     """
-    ok, msg = validate_license_key(machine_id, license_key)
-    if not ok:
-        return None
-    expiry_str, _ = _parse_license_key(license_key)
-    return datetime.strptime(expiry_str, "%Y%m%d").date()
+    mid = _normalize_machine_id(machine_id)
+    return f"{LICENSE_VERSION}|{APP_ID}|{mid}|{expires_str}"
 
 
-def save_license_key(path: Path, license_key: str) -> None:
-    """
-    Speichert den Lizenzschlüssel in eine JSON-Datei.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    data = {"license_key": license_key}
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
+def _sign_payload(payload: str) -> str:
+    sig = hmac.new(SECRET_KEY, payload.encode("utf-8"), hashlib.sha256).hexdigest().upper()
+    # Wir kürzen auf 16 Zeichen – reicht völlig, sieht aber nicht zu lang aus.
+    return sig[:16]
 
 
-def load_saved_license(path: Path) -> str | None:
-    """
-    Lädt einen gespeicherten Lizenzschlüssel, falls vorhanden.
-    """
-    if not path.is_file():
-        return None
+def _parse_date_yyyy_mm_dd(value: str) -> Optional[date]:
     try:
-        with path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("license_key")
+        return datetime.strptime(value, "%Y-%m-%d").date()
     except Exception:
         return None
 
 
-# --- Hilfsfunktion: Lizenzschlüssel erzeugen (für dich als „Hersteller“) ---
+# -------------------------------------------------------------------
+# LIZENZ GENERIEREN (für dich / Generator-Skript)
+# -------------------------------------------------------------------
+
+def generate_license_key(machine_id: str, expires_on: Optional[str] = None) -> str:
+    """
+    Erzeugt einen Lizenzschlüssel für eine bestimmte Maschinen-ID.
+
+    machine_id: die ID aus dem Lizenz-Tab des Kunden (get_machine_id)
+    expires_on: Ablaufdatum im Format 'YYYY-MM-DD' oder None für unbegrenzt
+    """
+    mid = _normalize_machine_id(machine_id)
+
+    if expires_on:
+        # Wir speichern das als Klartext im Key, z.B. 2026-12-31
+        expires_str = expires_on.strip()
+    else:
+        expires_str = "PERP"  # Perpetual (unbefristet)
+
+    payload = _build_payload(mid, expires_str)
+    sig = _sign_payload(payload)
+
+    # Format des Keys:
+    # EA-<Version>-<Expires>-<Signatur>
+    key = f"EA-{LICENSE_VERSION}-{expires_str}-{sig}"
+    return key
 
 
-def generate_license_key_for_machine(machine_id: str, valid_days: int = 365) -> str:
+# -------------------------------------------------------------------
+# LIZENZ VALIDIEREN (wird im Programm verwendet)
+# -------------------------------------------------------------------
+
+def validate_license_key(machine_id: str, license_key: str) -> Tuple[bool, str]:
     """
-    Erzeugt einen Lizenzschlüssel für eine bestimmte Maschine und Laufzeit.
-    Diese Funktion brauchst nur du, um Keys zu generieren – nicht der Kunde.
+    Prüft, ob ein Lizenzschlüssel zur lokalen Maschinen-ID passt
+    und ob das Ablaufdatum (falls gesetzt) noch gültig ist.
+
+    Rückgabe:
+        (True, "OK") oder (False, "Fehlermeldung")
     """
-    expiry_date = date.today() + timedelta(days=valid_days)
-    expiry_str = expiry_date.strftime("%Y%m%d")
-    sig = _build_signature(machine_id, expiry_str)
-    return f"{_PREFIX}-{expiry_str}-{sig}"
+    machine_id = _normalize_machine_id(machine_id)
+    key = license_key.strip().upper()
+
+    if not key.startswith("EA-"):
+        return False, "Ungültiges Lizenzformat (Prefix fehlt)."
+
+    parts = key.split("-")
+    if len(parts) < 4:
+        return False, "Ungültiges Lizenzformat (zu wenige Teile)."
+
+    _, version, expires_str, sig_part = parts[0], parts[1], parts[2], parts[3]
+
+    if version != LICENSE_VERSION:
+        return False, f"Unbekannte Lizenzversion: {version}."
+
+    # Ablauf prüfen
+    if expires_str != "PERP":
+        exp_date = _parse_date_yyyy_mm_dd(expires_str)
+        if exp_date is None:
+            return False, f"Ungültiges Ablaufdatum im Lizenzschlüssel: {expires_str}."
+        today = date.today()
+        if exp_date < today:
+            return False, f"Lizenz abgelaufen am {exp_date.isoformat()}."
+
+    # Signatur prüfen
+    payload = _build_payload(machine_id, expires_str)
+    expected_sig = _sign_payload(payload)
+
+    if sig_part != expected_sig:
+        return False, "Lizenz passt nicht zu dieser Maschine."
+
+    # Wenn alles passt:
+    if expires_str == "PERP":
+        return True, "Lizenz gültig (unbefristet)."
+    else:
+        return True, f"Lizenz gültig bis {expires_str}."
+
+
+# -------------------------------------------------------------------
+# LIZENZ SPEICHERN / LADEN (wird von main.py genutzt)
+# -------------------------------------------------------------------
+
+def save_license_key(path: Union[str, Path], license_key: str) -> None:
+    """
+    Speichert den Lizenzschlüssel in einer kleinen JSON-Datei:
+        { "license_key": "..." }
+    """
+    p = Path(path)
+    p.parent.mkdir(exist_ok=True, parents=True)
+    data = {"license_key": license_key}
+    p.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def load_saved_license(path: Union[str, Path]) -> Optional[str]:
+    """
+    Lädt einen gespeicherten Lizenzschlüssel aus der JSON-Datei.
+    Gibt None zurück, wenn es keine Datei gibt oder etwas schiefgeht.
+    """
+    p = Path(path)
+    if not p.is_file():
+        return None
+
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data.get("license_key")
+    except Exception:
+        return None
